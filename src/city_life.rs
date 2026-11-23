@@ -433,7 +433,7 @@ mod tests {
                 .any(|(_, rotation)| *rotation == Quat::IDENTITY)
         );
         assert!(windows.iter().any(|(_, rotation)| {
-            rotation.angle_between(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)) < 1.0e-5
+            (rotation * Vec3::Z).distance(Vec3::X) < 1.0e-5
         }));
     }
 }
