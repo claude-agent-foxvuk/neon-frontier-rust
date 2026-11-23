@@ -70,6 +70,23 @@ fn spawn_city_life(
         materials.add(Color::srgb(0.79, 0.70, 0.48)),
         materials.add(Color::srgb(0.49, 0.39, 0.73)),
     ];
+    let beacon_materials: Vec<_> = [
+        (Color::srgb(0.05, 0.55, 0.72), LinearRgba::rgb(0.0, 2.2, 4.0)),
+        (Color::srgb(0.72, 0.36, 0.08), LinearRgba::rgb(4.0, 1.4, 0.1)),
+        (Color::srgb(0.58, 0.16, 0.62), LinearRgba::rgb(2.8, 0.2, 3.5)),
+        (Color::srgb(0.18, 0.58, 0.32), LinearRgba::rgb(0.2, 3.2, 0.6)),
+    ]
+    .into_iter()
+    .map(|(base_color, emissive)| {
+        materials.add(StandardMaterial {
+            base_color,
+            emissive,
+            metallic: 0.35,
+            perceptual_roughness: 0.25,
+            ..default()
+        })
+    })
+    .collect();
 
     for road in 0..7 {
         let lane = road as f32 * ROAD_SPACING - 144.0;
@@ -128,6 +145,23 @@ fn spawn_city_life(
                 range: 7.0,
                 along_x,
             },
+        ));
+    }
+
+    let landmark_mesh = meshes.add(Cuboid::default());
+    for (index, (grid_x, grid_z)) in [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+        .into_iter()
+        .enumerate()
+    {
+        let x = grid_x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
+        let z = grid_z as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
+        let height = 8.0
+            + (((grid_x + 3) * 7 + (grid_z + 3) * 11) % 6) as f32 * 4.0;
+        commands.spawn((
+            Mesh3d(landmark_mesh.clone()),
+            MeshMaterial3d(beacon_materials[index].clone()),
+            Transform::from_xyz(x, height + 2.0, z)
+                .with_scale(Vec3::new(1.5, 4.0, 1.5)),
         ));
     }
 }
