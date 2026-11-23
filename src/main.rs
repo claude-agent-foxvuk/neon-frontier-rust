@@ -212,7 +212,7 @@ fn setup(
     commands.spawn((
         Camera3d::default(),
         Hdr,
-        Tonemapping::TonyMcMapface,
+        Tonemapping::TonyMcMapFace,
         Bloom::NATURAL,
         Transform::from_xyz(0.0, 6.0, 14.0).looking_at(game.player, Vec3::Y),
         FollowCamera,
@@ -392,8 +392,8 @@ fn controls(
         } else {
             game.camera_yaw -= mouse_delta.x * MOUSE_SENSITIVITY;
         }
-        game.camera_pitch = (game.camera_pitch - mouse_delta.y * MOUSE_SENSITIVITY)
-            .clamp(0.12, 1.05);
+        game.camera_pitch =
+            (game.camera_pitch - mouse_delta.y * MOUSE_SENSITIVITY).clamp(0.12, 1.05);
     }
 
     if keys.just_pressed(KeyCode::KeyB) {
@@ -434,9 +434,7 @@ fn controls(
                 let exit = game.car + side;
                 if !collides(Vec2::new(exit.x, exit.z), 0.45, &game.buildings) {
                     game.player = Vec3::new(exit.x, 0.9, exit.z);
-                    game.camera_yaw = game.yaw
-                        + std::f32::consts::PI
-                        + game.camera_orbit;
+                    game.camera_yaw = game.yaw + std::f32::consts::PI + game.camera_orbit;
                     game.driving = false;
                     game.speed = 0.0;
                 }
@@ -621,13 +619,7 @@ fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<Hud>>) {
     for mut text in &mut labels {
         text.0 = format!(
             "NEON FRONTIER • ранняя версия\n{}\nКредиты: {}\n{}\n{}\n{}\nWASD: движение/газ • Shift: бег\n{}\nB: bloom • F5: сохранить • F9: загрузить\n{}",
-            objective,
-            game.credits,
-            state,
-            interaction,
-            speed,
-            mouse_hint,
-            game.notice
+            objective, game.credits, state, interaction, speed, mouse_hint, game.notice
         );
     }
 }
