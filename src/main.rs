@@ -3,10 +3,12 @@ mod city_life;
 use bevy::{
     camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
 };
+use std::io;
 
 const WORLD_EDGE: f32 = 165.0;
 const ROAD_SPACING: f32 = 48.0;
 const BUILDING_HALF: f32 = 14.0;
+const SAVE_FILE: &str = "neon_frontier_save.txt";
 
 #[derive(Component)]
 struct PlayerVisual;
@@ -31,6 +33,8 @@ struct Game {
     stage: usize,
     credits: u32,
     buildings: Vec<Vec2>,
+    notice: String,
+    notice_timer: f32,
 }
 
 impl Default for Game {
@@ -46,8 +50,22 @@ impl Default for Game {
             stage: 0,
             credits: 0,
             buildings: Vec::new(),
+            notice: String::new(),
+            notice_timer: 0.0,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Snapshot {
+    player: Vec3,
+    car: Vec3,
+    yaw: f32,
+    speed: f32,
+    stage: usize,
+    credits: u32,
+    driving: bool,
+    bloom: bool,
 }
 
 const OBJECTIVES: [Vec3; 3] = [
@@ -204,6 +222,117 @@ fn collides(pos: Vec2, radius: f32, buildings: &[Vec2]) -> bool {
     })
 }
 
+fn snapshot_from_game(game: &Game) -> Snapshot {
+    Snapshot {
+        player: game.player,
+        car: game.car,
+        yaw: game.yaw,
+        speed: game.speed,
+        stage: game.stage,
+        credits: game.credits,
+        driving: game.driving,
+        bloom: game.bloom,
+    }
+}
+
+fn encode_snapshot(snapshot: Snapshot) -> String {
+    format!(
+        "NEON_FRONTIER_SAVE_V1\n{:.4} {:.4} {:.4}\n{:.4} {:.4} {:.4}\n{:.4} {:.4}\n{}\n{}\n{}\n{}\n",
+        snapshot.player.x,
+        snapshot.player.y,
+        snapshot.player.z,
+        snapshot.car.x,
+        snapshot.car.y,
+        snapshot.car.z,
+        snapshot.yaw,
+        snapshot.speed,
+        snapshot.stage,
+        snapshot.credits,
+        snapshot.driving,
+        snapshot.bloom
+    )
+}
+
+fn parse_floats<const N: usize>(line: &str) -> Option<[f32; N]> {
+    let values = line
+        .split_whitespace()
+        .map(str::parse::<f32>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    values.try_into().ok()
+}
+
+fn decode_snapshot(text: &str) -> Option<Snapshot> {
+    let mut lines = text.lines();
+    if lines.next()? != "NEON_FRONTIER_SAVE_V1" {
+        return None;
+    }
+    let player = parse_floats::<3>(lines.next()?)?;
+    let car = parse_floats::<3>(lines.next()?)?;
+    let motion = parse_floats::<2>(lines.next()?)?;
+    let stage = lines.next()?.parse::<usize>().ok()?;
+    let credits = lines.next()?.parse::<u32>().ok()?;
+    let driving = lines.next()?.parse::<bool>().ok()?;
+    let bloom = lines.next()?.parse::<bool>().ok()?;
+    if lines.next().is_some() {
+        return None;
+    }
+    let values = [
+        player[0], player[1], player[2], car[0], car[1], car[2], motion[0], motion[1],
+    ];
+    if !values.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    Some(Snapshot {
+        player: Vec3::new(player[0], player[1], player[2]),
+        car: Vec3::new(car[0], car[1], car[2]),
+        yaw: motion[0],
+        speed: motion[1],
+        stage,
+        credits,
+        driving,
+        bloom,
+    })
+}
+
+fn save_game(game: &Game) -> io::Result<()> {
+    std::fs::write(SAVE_FILE, encode_snapshot(snapshot_from_game(game)))
+}
+
+fn load_game(game: &mut Game) -> io::Result<()> {
+    let text = std::fs::read_to_string(SAVE_FILE)?;
+    let snapshot = decode_snapshot(&text).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "Invalid or unsupported save file")
+    })?;
+    if snapshot.stage > OBJECTIVES.len()
+        || !(-8.0..=24.0).contains(&snapshot.speed)
+        || collides(
+            Vec2::new(snapshot.player.x, snapshot.player.z),
+            0.45,
+            &game.buildings,
+        )
+        || collides(
+            Vec2::new(snapshot.car.x, snapshot.car.z),
+            2.0,
+            &game.buildings,
+        )
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Save position or progress is outside the supported game state",
+        ));
+    }
+    game.player = snapshot.player;
+    game.car = snapshot.car;
+    game.yaw = snapshot.yaw;
+    game.speed = snapshot.speed;
+    game.stage = snapshot.stage;
+    game.credits = snapshot.credits;
+    game.driving = snapshot.driving;
+    game.bloom = snapshot.bloom;
+    Ok(())
+}
+
 fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<Game>) {
     if keys.just_pressed(KeyCode::Escape) {
         game.paused = !game.paused;
@@ -211,11 +340,36 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
     if keys.just_pressed(KeyCode::KeyB) {
         game.bloom = !game.bloom;
     }
+
+    let dt = time.delta_secs().min(0.05);
+    if game.notice_timer > 0.0 {
+        game.notice_timer -= dt;
+        if game.notice_timer <= 0.0 {
+            game.notice.clear();
+        }
+    }
+    if keys.just_pressed(KeyCode::F5) {
+        let saved = save_game(&game).is_ok();
+        game.notice = if saved {
+            format!("Сохранение записано: {SAVE_FILE}")
+        } else {
+            "Не удалось записать сохранение".to_string()
+        };
+        game.notice_timer = 3.0;
+    }
+    if keys.just_pressed(KeyCode::F9) {
+        let loaded = load_game(&mut game).is_ok();
+        game.notice = if loaded {
+            "Сохранение загружено".to_string()
+        } else {
+            format!("Не удалось загрузить {SAVE_FILE}")
+        };
+        game.notice_timer = 3.0;
+    }
     if game.paused {
         return;
     }
 
-    let dt = time.delta_secs().min(0.05);
     if keys.just_pressed(KeyCode::KeyE) {
         if game.driving {
             if game.speed.abs() < 2.0 {
@@ -374,8 +528,8 @@ fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<Hud>>) {
     };
     for mut text in &mut labels {
         text.0 = format!(
-            "NEON FRONTIER • ранняя версия\n{}\nКредиты: {}\n{}\nWASD: движение/газ • Shift: бег • E: сесть/выйти\nEsc: пауза • B: bloom",
-            objective, game.credits, state
+            "NEON FRONTIER • ранняя версия\n{}\nКредиты: {}\n{}\nWASD: движение/газ • Shift: бег • E: сесть/выйти\nEsc: пауза • B: bloom • F5: сохранить • F9: загрузить\n{}",
+            objective, game.credits, state, game.notice
         );
     }
 }
@@ -395,5 +549,29 @@ mod tests {
     fn world_boundary_blocks_escape() {
         assert!(collides(Vec2::new(WORLD_EDGE, 0.0), 1.0, &[]));
         assert!(!collides(Vec2::new(0.0, 0.0), 1.0, &[]));
+    }
+
+    #[test]
+    fn save_format_round_trips_game_state() {
+        let snapshot = Snapshot {
+            player: Vec3::new(12.5, 0.9, -18.25),
+            car: Vec3::new(14.0, 0.65, -20.0),
+            yaw: 1.25,
+            speed: 8.5,
+            stage: 2,
+            credits: 200,
+            driving: true,
+            bloom: false,
+        };
+        assert_eq!(decode_snapshot(&encode_snapshot(snapshot)), Some(snapshot));
+    }
+
+    #[test]
+    fn save_decoder_rejects_invalid_or_non_finite_data() {
+        let invalid_version = "NEON_FRONTIER_SAVE_V9\n";
+        let non_finite =
+            "NEON_FRONTIER_SAVE_V1\nNaN 0 0\n0 0 0\n0 0\n0\n0\nfalse\ntrue\n";
+        assert!(decode_snapshot(invalid_version).is_none());
+        assert!(decode_snapshot(non_finite).is_none());
     }
 }
