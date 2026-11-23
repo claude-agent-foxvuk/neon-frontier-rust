@@ -1,7 +1,12 @@
 mod city_life;
 
 use bevy::{
-    camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
+    camera::Hdr,
+    core_pipeline::tonemapping::Tonemapping,
+    input::mouse::MouseMotion,
+    post_process::bloom::Bloom,
+    prelude::*,
+    window::{CursorGrabMode, CursorOptions},
 };
 use std::io;
 
@@ -9,15 +14,20 @@ const WORLD_EDGE: f32 = 165.0;
 const ROAD_SPACING: f32 = 48.0;
 const BUILDING_HALF: f32 = 14.0;
 const SAVE_FILE: &str = "neon_frontier_save.txt";
+const MOUSE_SENSITIVITY: f32 = 0.0035;
 
 #[derive(Component)]
 struct PlayerVisual;
+
 #[derive(Component)]
 struct CarVisual;
+
 #[derive(Component)]
 struct FollowCamera;
+
 #[derive(Component)]
 struct Hud;
+
 #[derive(Component)]
 struct MissionMarker;
 
@@ -35,6 +45,10 @@ struct Game {
     buildings: Vec<Vec2>,
     notice: String,
     notice_timer: f32,
+    camera_yaw: f32,
+    camera_orbit: f32,
+    camera_pitch: f32,
+    mouse_captured: bool,
 }
 
 impl Default for Game {
@@ -52,6 +66,10 @@ impl Default for Game {
             buildings: Vec::new(),
             notice: String::new(),
             notice_timer: 0.0,
+            camera_yaw: 0.0,
+            camera_orbit: 0.0,
+            camera_pitch: 0.38,
+            mouse_captured: false,
         }
     }
 }
@@ -196,7 +214,7 @@ fn setup(
         Hdr,
         Tonemapping::TonyMcMapface,
         Bloom::NATURAL,
-        Transform::from_xyz(0.0, 10.0, 18.0).looking_at(game.player, Vec3::Y),
+        Transform::from_xyz(0.0, 6.0, 14.0).looking_at(game.player, Vec3::Y),
         FollowCamera,
     ));
     commands.spawn((
@@ -220,6 +238,12 @@ fn collides(pos: Vec2, radius: f32, buildings: &[Vec2]) -> bool {
         let dz = ((pos.y - center.y).abs() - BUILDING_HALF).max(0.0);
         dx * dx + dz * dz < radius * radius
     })
+}
+
+fn walk_direction(horizontal: f32, forward: f32, yaw: f32) -> Vec3 {
+    let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+    let ahead = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
+    (right * horizontal + ahead * forward).normalize_or_zero()
 }
 
 fn snapshot_from_game(game: &Game) -> Snapshot {
@@ -336,14 +360,45 @@ fn load_game(game: &mut Game) -> io::Result<()> {
     Ok(())
 }
 
-fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<Game>) {
+fn controls(
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mut mouse_motion: MessageReader<MouseMotion>,
+    mut cursor_options: Single<&mut CursorOptions>,
+    time: Res<Time>,
+    mut game: ResMut<Game>,
+) {
     if keys.just_pressed(KeyCode::Escape) {
         game.paused = !game.paused;
+        game.mouse_captured = !game.paused;
     }
+    if mouse_buttons.just_pressed(MouseButton::Left) {
+        game.paused = false;
+        game.mouse_captured = true;
+    }
+    cursor_options.visible = !game.mouse_captured;
+    cursor_options.grab_mode = if game.mouse_captured {
+        CursorGrabMode::Locked
+    } else {
+        CursorGrabMode::None
+    };
+
+    let mouse_delta = mouse_motion
+        .read()
+        .fold(Vec2::ZERO, |delta, event| delta + event.delta);
+    if game.mouse_captured && !game.paused {
+        if game.driving {
+            game.camera_orbit -= mouse_delta.x * MOUSE_SENSITIVITY;
+        } else {
+            game.camera_yaw -= mouse_delta.x * MOUSE_SENSITIVITY;
+        }
+        game.camera_pitch = (game.camera_pitch - mouse_delta.y * MOUSE_SENSITIVITY)
+            .clamp(0.12, 1.05);
+    }
+
     if keys.just_pressed(KeyCode::KeyB) {
         game.bloom = !game.bloom;
     }
-
     let dt = time.delta_secs().min(0.05);
     if game.notice_timer > 0.0 {
         game.notice_timer -= dt;
@@ -372,7 +427,6 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
     if game.paused {
         return;
     }
-
     if keys.just_pressed(KeyCode::KeyE) {
         if game.driving {
             if game.speed.abs() < 2.0 {
@@ -380,15 +434,18 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
                 let exit = game.car + side;
                 if !collides(Vec2::new(exit.x, exit.z), 0.45, &game.buildings) {
                     game.player = Vec3::new(exit.x, 0.9, exit.z);
+                    game.camera_yaw = game.yaw
+                        + std::f32::consts::PI
+                        + game.camera_orbit;
                     game.driving = false;
                     game.speed = 0.0;
                 }
             }
         } else if game.player.distance(game.car) < 4.5 {
             game.driving = true;
+            game.camera_orbit = 0.0;
         }
     }
-
     if game.driving {
         let throttle =
             (keys.pressed(KeyCode::KeyW) as i32 - keys.pressed(KeyCode::KeyS) as i32) as f32;
@@ -407,9 +464,11 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
         }
         game.player = game.car;
     } else {
-        let x = (keys.pressed(KeyCode::KeyD) as i32 - keys.pressed(KeyCode::KeyA) as i32) as f32;
-        let z = (keys.pressed(KeyCode::KeyS) as i32 - keys.pressed(KeyCode::KeyW) as i32) as f32;
-        let direction = Vec3::new(x, 0.0, z).normalize_or_zero();
+        let horizontal =
+            (keys.pressed(KeyCode::KeyD) as i32 - keys.pressed(KeyCode::KeyA) as i32) as f32;
+        let forward =
+            (keys.pressed(KeyCode::KeyW) as i32 - keys.pressed(KeyCode::KeyS) as i32) as f32;
+        let direction = walk_direction(horizontal, forward, game.camera_yaw);
         let run = if keys.pressed(KeyCode::ShiftLeft) {
             8.0
         } else {
@@ -420,7 +479,6 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
             game.player = next;
         }
     }
-
     if game.stage < OBJECTIVES.len() {
         let position = if game.driving { game.car } else { game.player };
         let target = OBJECTIVES[game.stage];
@@ -492,14 +550,20 @@ fn update_world(
             *visibility = Visibility::Hidden;
         }
     }
-
     let target = if game.driving { game.car } else { game.player };
-    let desired = if game.driving {
-        let forward = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
-        target - forward * 14.0 + Vec3::Y * 7.0
+    let camera_yaw = if game.driving {
+        game.yaw + std::f32::consts::PI + game.camera_orbit
     } else {
-        target + Vec3::new(0.0, 7.0, 12.0)
+        game.camera_yaw
     };
+    let radius = if game.driving { 14.0 } else { 12.0 };
+    let pitch = game.camera_pitch;
+    let offset = Vec3::new(
+        camera_yaw.sin() * pitch.cos(),
+        pitch.sin(),
+        camera_yaw.cos() * pitch.cos(),
+    ) * radius;
+    let desired = target + offset;
     for (entity, mut camera, bloom) in &mut cameras {
         let blend = (time.delta_secs() * 4.0).clamp(0.0, 1.0);
         camera.translation = camera.translation.lerp(desired, blend);
@@ -513,26 +577,57 @@ fn update_world(
 }
 
 fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<Hud>>) {
+    let position = if game.driving { game.car } else { game.player };
     let objective = if game.stage < OBJECTIVES.len() {
+        let target = OBJECTIVES[game.stage];
+        let distance = Vec2::new(position.x - target.x, position.z - target.z).length();
         format!(
-            "Маршрут «Три маяка»: точка {}/{}",
+            "Маршрут «Три маяка»: точка {}/{} • {:.0} м",
             game.stage + 1,
-            OBJECTIVES.len()
+            OBJECTIVES.len(),
+            distance
         )
     } else {
         "Маршрут выполнен! Награда получена".to_string()
     };
     let state = if game.paused {
-        "ПАУЗА"
+        "ПАУЗА — Esc или ЛКМ, чтобы продолжить"
     } else if game.driving {
         "ЗА РУЛЁМ"
     } else {
         "ПЕШКОМ"
     };
+    let interaction = if game.driving {
+        if game.speed.abs() < 2.0 {
+            "E: выйти из машины"
+        } else {
+            "Сбавь скорость и нажми E, чтобы выйти"
+        }
+    } else if game.player.distance(game.car) < 4.5 {
+        "E: сесть в машину"
+    } else {
+        "Подойди к бирюзовой машине, чтобы сесть"
+    };
+    let speed = if game.driving {
+        format!("Скорость: {:.1} м/с", game.speed.abs())
+    } else {
+        String::new()
+    };
+    let mouse_hint = if game.mouse_captured {
+        "Камера: мышь • Esc: пауза и освободить мышь"
+    } else {
+        "ЛКМ: захватить мышь и управлять камерой"
+    };
     for mut text in &mut labels {
         text.0 = format!(
-            "NEON FRONTIER • ранняя версия\n{}\nКредиты: {}\n{}\nWASD: движение/газ • Shift: бег • E: сесть/выйти\nEsc: пауза • B: bloom • F5: сохранить • F9: загрузить\n{}",
-            objective, game.credits, state, game.notice
+            "NEON FRONTIER • ранняя версия\n{}\nКредиты: {}\n{}\n{}\n{}\nWASD: движение/газ • Shift: бег\n{}\nB: bloom • F5: сохранить • F9: загрузить\n{}",
+            objective,
+            game.credits,
+            state,
+            interaction,
+            speed,
+            mouse_hint,
+            game.notice
         );
     }
 }
@@ -552,6 +647,17 @@ mod tests {
     fn world_boundary_blocks_escape() {
         assert!(collides(Vec2::new(WORLD_EDGE, 0.0), 1.0, &[]));
         assert!(!collides(Vec2::new(0.0, 0.0), 1.0, &[]));
+    }
+
+    #[test]
+    fn walking_uses_camera_relative_directions() {
+        let forward = walk_direction(0.0, 1.0, 0.0);
+        let right = walk_direction(1.0, 0.0, 0.0);
+        assert!(forward.distance(Vec3::NEG_Z) < 1.0e-5);
+        assert!(right.distance(Vec3::X) < 1.0e-5);
+
+        let turned_forward = walk_direction(0.0, 1.0, std::f32::consts::FRAC_PI_2);
+        assert!(turned_forward.distance(Vec3::NEG_X) < 1.0e-5);
     }
 
     #[test]
