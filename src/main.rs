@@ -212,7 +212,7 @@ fn setup(
     commands.spawn((
         Camera3d::default(),
         Hdr,
-        Tonemapping::TonyMcMapFace,
+        Tonemapping::TonyMcMapface,
         Bloom::NATURAL,
         Transform::from_xyz(0.0, 6.0, 14.0).looking_at(game.player, Vec3::Y),
         FollowCamera,
