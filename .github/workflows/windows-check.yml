@@ -9,7 +9,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 110
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -23,7 +23,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-1.100.0-${{ hashFiles('Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-1.100.0-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-1.100.0-
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Test
