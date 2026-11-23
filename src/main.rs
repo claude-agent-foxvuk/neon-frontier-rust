@@ -302,7 +302,10 @@ fn save_game(game: &Game) -> io::Result<()> {
 fn load_game(game: &mut Game) -> io::Result<()> {
     let text = std::fs::read_to_string(SAVE_FILE)?;
     let snapshot = decode_snapshot(&text).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "Invalid or unsupported save file")
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid or unsupported save file",
+        )
     })?;
     if snapshot.stage > OBJECTIVES.len()
         || !(-8.0..=24.0).contains(&snapshot.speed)
@@ -569,8 +572,7 @@ mod tests {
     #[test]
     fn save_decoder_rejects_invalid_or_non_finite_data() {
         let invalid_version = "NEON_FRONTIER_SAVE_V9\n";
-        let non_finite =
-            "NEON_FRONTIER_SAVE_V1\nNaN 0 0\n0 0 0\n0 0\n0\n0\nfalse\ntrue\n";
+        let non_finite = "NEON_FRONTIER_SAVE_V1\nNaN 0 0\n0 0 0\n0 0\n0\n0\nfalse\ntrue\n";
         assert!(decode_snapshot(invalid_version).is_none());
         assert!(decode_snapshot(non_finite).is_none());
     }
