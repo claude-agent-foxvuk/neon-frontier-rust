@@ -1,11 +1,6 @@
 mod city_life;
 
-use bevy::{
-    camera::Hdr,
-    core_pipeline::tonemapping::Tonemapping,
-    post_process::bloom::Bloom,
-    prelude::*,
-};
+use bevy::{camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*};
 
 const WORLD_EDGE: f32 = 165.0;
 const ROAD_SPACING: f32 = 48.0;
@@ -141,8 +136,11 @@ fn setup(
             commands.spawn((
                 Mesh3d(cube.clone()),
                 MeshMaterial3d(buildings[color_index].clone()),
-                Transform::from_xyz(px, height / 2.0, pz)
-                    .with_scale(Vec3::new(BUILDING_HALF * 2.0, height, BUILDING_HALF * 2.0)),
+                Transform::from_xyz(px, height / 2.0, pz).with_scale(Vec3::new(
+                    BUILDING_HALF * 2.0,
+                    height,
+                    BUILDING_HALF * 2.0,
+                )),
             ));
         }
     }
@@ -233,10 +231,10 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
     }
 
     if game.driving {
-        let throttle = (keys.pressed(KeyCode::KeyW) as i32
-            - keys.pressed(KeyCode::KeyS) as i32) as f32;
-        let steer = (keys.pressed(KeyCode::KeyA) as i32
-            - keys.pressed(KeyCode::KeyD) as i32) as f32;
+        let throttle =
+            (keys.pressed(KeyCode::KeyW) as i32 - keys.pressed(KeyCode::KeyS) as i32) as f32;
+        let steer =
+            (keys.pressed(KeyCode::KeyA) as i32 - keys.pressed(KeyCode::KeyD) as i32) as f32;
         game.speed = (game.speed + throttle * 14.0 * dt).clamp(-8.0, 24.0);
         game.speed *= (1.0 - 0.7 * dt).max(0.0);
         let speed_factor = (game.speed / 8.0).clamp(-1.0, 1.0);
@@ -250,12 +248,14 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
         }
         game.player = game.car;
     } else {
-        let x = (keys.pressed(KeyCode::KeyD) as i32
-            - keys.pressed(KeyCode::KeyA) as i32) as f32;
-        let z = (keys.pressed(KeyCode::KeyS) as i32
-            - keys.pressed(KeyCode::KeyW) as i32) as f32;
+        let x = (keys.pressed(KeyCode::KeyD) as i32 - keys.pressed(KeyCode::KeyA) as i32) as f32;
+        let z = (keys.pressed(KeyCode::KeyS) as i32 - keys.pressed(KeyCode::KeyW) as i32) as f32;
         let direction = Vec3::new(x, 0.0, z).normalize_or_zero();
-        let run = if keys.pressed(KeyCode::ShiftLeft) { 8.0 } else { 5.0 };
+        let run = if keys.pressed(KeyCode::ShiftLeft) {
+            8.0
+        } else {
+            5.0
+        };
         let next = game.player + direction * run * dt;
         if !collides(Vec2::new(next.x, next.z), 0.45, &game.buildings) {
             game.player = next;
@@ -277,19 +277,39 @@ fn update_world(
     time: Res<Time>,
     mut players: Query<
         (&mut Transform, &mut Visibility),
-        (With<PlayerVisual>, Without<CarVisual>, Without<FollowCamera>, Without<MissionMarker>),
+        (
+            With<PlayerVisual>,
+            Without<CarVisual>,
+            Without<FollowCamera>,
+            Without<MissionMarker>,
+        ),
     >,
     mut cars: Query<
         &mut Transform,
-        (With<CarVisual>, Without<PlayerVisual>, Without<FollowCamera>, Without<MissionMarker>),
+        (
+            With<CarVisual>,
+            Without<PlayerVisual>,
+            Without<FollowCamera>,
+            Without<MissionMarker>,
+        ),
     >,
     mut cameras: Query<
         (Entity, &mut Transform, Option<&Bloom>),
-        (With<FollowCamera>, Without<PlayerVisual>, Without<CarVisual>, Without<MissionMarker>),
+        (
+            With<FollowCamera>,
+            Without<PlayerVisual>,
+            Without<CarVisual>,
+            Without<MissionMarker>,
+        ),
     >,
     mut markers: Query<
         (&mut Transform, &mut Visibility),
-        (With<MissionMarker>, Without<PlayerVisual>, Without<CarVisual>, Without<FollowCamera>),
+        (
+            With<MissionMarker>,
+            Without<PlayerVisual>,
+            Without<CarVisual>,
+            Without<FollowCamera>,
+        ),
     >,
     mut commands: Commands,
 ) {
@@ -335,7 +355,11 @@ fn update_world(
 
 fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<Hud>>) {
     let objective = if game.stage < OBJECTIVES.len() {
-        format!("Маршрут «Три маяка»: точка {}/{}", game.stage + 1, OBJECTIVES.len())
+        format!(
+            "Маршрут «Три маяка»: точка {}/{}",
+            game.stage + 1,
+            OBJECTIVES.len()
+        )
     } else {
         "Маршрут выполнен! Награда получена".to_string()
     };
