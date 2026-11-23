@@ -1,6 +1,11 @@
 use bevy::prelude::*;
 
 const CITY_LIMIT: f32 = 160.0;
+const ROAD_SPACING: f32 = 48.0;
+const ROAD_HALF_WIDTH: f32 = 5.5;
+const SIDEWALK_OFFSET: f32 = 7.0;
+const BUILDING_HALF: f32 = 14.0;
+const BUILDING_EDGE_FROM_ROAD: f32 = ROAD_SPACING * 0.5 - BUILDING_HALF;
 
 #[derive(Component)]
 struct TrafficCar {
@@ -24,6 +29,14 @@ impl Plugin for CityLifePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_city_life)
             .add_systems(Update, animate_city_life);
+    }
+}
+
+fn traffic_rotation(along_x: bool) -> Quat {
+    if along_x {
+        Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)
+    } else {
+        Quat::IDENTITY
     }
 }
 
@@ -59,25 +72,25 @@ fn spawn_city_life(
     ];
 
     for road in 0..7 {
-        let lane = road as f32 * 48.0 - 144.0;
+        let lane = road as f32 * ROAD_SPACING - 144.0;
         let direction = if road % 2 == 0 { 1.0 } else { -1.0 };
         let along_x = Vec3::new(-126.0 + road as f32 * 34.0, 0.48, lane + 2.1);
         commands.spawn((
             Mesh3d(car_mesh.clone()),
             MeshMaterial3d(car_materials[road % car_materials.len()].clone()),
-            Transform::from_translation(along_x),
+            Transform::from_translation(along_x).with_rotation(traffic_rotation(true)),
             TrafficCar {
                 speed: 6.0 + (road % 3) as f32 * 1.2,
                 direction,
                 along_x: true,
             },
         ));
+
         let along_z = Vec3::new(lane - 2.1, 0.48, -118.0 + road as f32 * 32.0);
         commands.spawn((
             Mesh3d(car_mesh.clone()),
             MeshMaterial3d(car_materials[(road + 1) % car_materials.len()].clone()),
-            Transform::from_translation(along_z)
-                .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+            Transform::from_translation(along_z).with_rotation(traffic_rotation(false)),
             TrafficCar {
                 speed: 6.6 + (road % 2) as f32 * 1.4,
                 direction: -direction,
@@ -89,12 +102,20 @@ fn spawn_city_life(
     for index in 0..14 {
         let road = (index % 7) as f32;
         let side = if index < 7 { 1.0 } else { -1.0 };
-        let lane = road * 48.0 - 144.0;
+        let lane = road * ROAD_SPACING - 144.0;
         let along_x = index >= 7;
         let origin = if along_x {
-            Vec3::new(-108.0 + road * 31.0, 0.82, lane + side * 8.5)
+            Vec3::new(
+                -108.0 + road * 31.0,
+                0.82,
+                lane + side * SIDEWALK_OFFSET,
+            )
         } else {
-            Vec3::new(lane + side * 8.5, 0.82, -108.0 + road * 31.0)
+            Vec3::new(
+                lane + side * SIDEWALK_OFFSET,
+                0.82,
+                -108.0 + road * 31.0,
+            )
         };
         commands.spawn((
             Mesh3d(citizen_mesh.clone()),
@@ -151,17 +172,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn traffic_uses_separate_parallel_lanes() {
-        let lane_a = -144.0 + 2.1;
-        let lane_b = -144.0 - 2.1;
-        assert!((lane_a - lane_b).abs() > 4.0);
-        assert!(CITY_LIMIT > 144.0);
+    fn traffic_models_face_the_direction_they_drive() {
+        let along_x = traffic_rotation(true) * Vec3::Z;
+        let along_z = traffic_rotation(false) * Vec3::Z;
+        assert!(along_x.distance(Vec3::X) < 1.0e-5);
+        assert!(along_z.distance(Vec3::Z) < 1.0e-5);
     }
 
     #[test]
-    fn pedestrian_paths_stay_inside_the_city_bounds() {
-        let road = 6.0 * 48.0 - 144.0;
-        let sidewalk = road + 8.5;
+    fn pedestrian_paths_fit_between_roads_and_buildings() {
+        assert!(SIDEWALK_OFFSET > ROAD_HALF_WIDTH);
+        assert!(SIDEWALK_OFFSET < BUILDING_EDGE_FROM_ROAD);
+        let road = 6.0 * ROAD_SPACING - 144.0;
+        let sidewalk = road + SIDEWALK_OFFSET;
         assert!(sidewalk.abs() < CITY_LIMIT);
         assert!((-108.0_f32 - 7.0).abs() < CITY_LIMIT);
     }
