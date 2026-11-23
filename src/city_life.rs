@@ -66,6 +66,40 @@ fn intersection_light_positions() -> Vec<Vec3> {
     positions
 }
 
+fn facade_window_transforms() -> Vec<(Vec3, Quat)> {
+    let mut windows = Vec::with_capacity(1_008);
+    for grid_x in -3_i32..=2 {
+        for grid_z in -3_i32..=2 {
+            let center_x = grid_x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
+            let center_z = grid_z as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
+            let height = 8.0 + (((grid_x + 3) * 7 + (grid_z + 3) * 11) % 6) as f32 * 4.0;
+            let mut y = 3.4;
+            while y < height - 1.0 {
+                for column in [-1.0_f32, 1.0] {
+                    windows.push((
+                        Vec3::new(center_x + column * 6.0, y, center_z - BUILDING_HALF - 0.08),
+                        Quat::IDENTITY,
+                    ));
+                    windows.push((
+                        Vec3::new(center_x + column * 6.0, y, center_z + BUILDING_HALF + 0.08),
+                        Quat::IDENTITY,
+                    ));
+                    windows.push((
+                        Vec3::new(center_x - BUILDING_HALF - 0.08, y, center_z + column * 6.0),
+                        Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+                    ));
+                    windows.push((
+                        Vec3::new(center_x + BUILDING_HALF + 0.08, y, center_z + column * 6.0),
+                        Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+                    ));
+                }
+                y += 4.6;
+            }
+        }
+    }
+    windows
+}
+
 fn spawn_city_life(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -255,6 +289,39 @@ fn spawn_city_life(
             Transform::from_translation(position),
         ));
     }
+
+    // Shared meshes and three emissive materials keep the procedural facade detail light.
+    let window_mesh = meshes.add(Cuboid::new(1.3, 1.2, 0.12));
+    let window_materials = [
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.82, 0.59, 0.25),
+            emissive: LinearRgba::rgb(1.5, 0.78, 0.22),
+            metallic: 0.12,
+            perceptual_roughness: 0.48,
+            ..default()
+        }),
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.08, 0.48, 0.62),
+            emissive: LinearRgba::rgb(0.08, 1.25, 1.75),
+            metallic: 0.18,
+            perceptual_roughness: 0.38,
+            ..default()
+        }),
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.58, 0.22, 0.52),
+            emissive: LinearRgba::rgb(1.1, 0.16, 0.9),
+            metallic: 0.15,
+            perceptual_roughness: 0.4,
+            ..default()
+        }),
+    ];
+    for (index, (position, rotation)) in facade_window_transforms().into_iter().enumerate() {
+        commands.spawn((
+            Mesh3d(window_mesh.clone()),
+            MeshMaterial3d(window_materials[index % window_materials.len()].clone()),
+            Transform::from_translation(position).with_rotation(rotation),
+        ));
+    }
 }
 
 fn animate_city_life(
@@ -347,6 +414,22 @@ mod tests {
         assert_eq!(positions.len(), 9);
         assert!(positions.iter().all(|position| {
             position.x.abs() < CITY_LIMIT && position.z.abs() < CITY_LIMIT && position.y == 5.5
+        }));
+    }
+
+    #[test]
+    fn facade_windows_cover_every_building_and_stay_inside_the_city() {
+        let windows = facade_window_transforms();
+        assert_eq!(windows.len(), 1_008);
+        assert!(windows.iter().all(|(position, _)| {
+            position.x.abs() < CITY_LIMIT
+                && position.z.abs() < CITY_LIMIT
+                && position.y > 0.0
+                && position.y < 28.0
+        }));
+        assert!(windows.iter().any(|(_, rotation)| *rotation == Quat::IDENTITY));
+        assert!(windows.iter().any(|(_, rotation)| {
+            rotation.angle_between(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)) < 1.0e-5
         }));
     }
 }
