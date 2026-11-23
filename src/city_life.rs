@@ -42,6 +42,24 @@ fn pedestrian_rotation(along_x: bool, direction: f32) -> Quat {
     Quat::from_rotation_y(forward.x.atan2(forward.z))
 }
 
+fn streetlight_positions() -> Vec<Vec3> {
+    let mut positions = Vec::with_capacity(36);
+    for road_x in [-96.0, 0.0, 96.0] {
+        for road_z in [-96.0, 0.0, 96.0] {
+            for side_x in [-1.0, 1.0] {
+                for side_z in [-1.0, 1.0] {
+                    positions.push(Vec3::new(
+                        road_x + side_x * 7.4,
+                        0.0,
+                        road_z + side_z * 7.4,
+                    ));
+                }
+            }
+        }
+    }
+    positions
+}
+
 fn spawn_city_life(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -167,6 +185,50 @@ fn spawn_city_life(
             Transform::from_xyz(x, height + 2.0, z).with_scale(Vec3::new(1.5, 4.0, 1.5)),
         ));
     }
+
+    let lamp_post_mesh = meshes.add(Cuboid::new(0.18, 6.2, 0.18));
+    let lamp_arm_mesh = meshes.add(Cuboid::new(1.2, 0.12, 0.12));
+    let lamp_head_mesh = meshes.add(Cuboid::new(0.42, 0.18, 0.36));
+    let lamp_post_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.08, 0.12, 0.17),
+        metallic: 0.78,
+        perceptual_roughness: 0.32,
+        ..default()
+    });
+    let lamp_arm_material = lamp_post_material.clone();
+    let lamp_glow_materials = [
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.06, 0.52, 0.72),
+            emissive: LinearRgba::rgb(0.05, 2.0, 4.2),
+            ..default()
+        }),
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.66, 0.18, 0.62),
+            emissive: LinearRgba::rgb(2.5, 0.1, 2.2),
+            ..default()
+        }),
+    ];
+    for (index, position) in streetlight_positions().into_iter().enumerate() {
+        let side_x = if position.x < 0.0 { -1.0 } else { 1.0 };
+        let inward_arm = Vec3::new(-side_x * 0.42, 0.0, 0.0);
+        let head_offset = Vec3::new(-side_x * 0.95, 0.0, 0.0);
+        let bulb_material = lamp_glow_materials[index % lamp_glow_materials.len()].clone();
+        commands.spawn((
+            Mesh3d(lamp_post_mesh.clone()),
+            MeshMaterial3d(lamp_post_material.clone()),
+            Transform::from_translation(position + Vec3::Y * 3.1),
+        ));
+        commands.spawn((
+            Mesh3d(lamp_arm_mesh.clone()),
+            MeshMaterial3d(lamp_arm_material.clone()),
+            Transform::from_translation(position + Vec3::Y * 6.0 + inward_arm),
+        ));
+        commands.spawn((
+            Mesh3d(lamp_head_mesh.clone()),
+            MeshMaterial3d(bulb_material),
+            Transform::from_translation(position + Vec3::Y * 5.95 + head_offset),
+        ));
+    }
 }
 
 fn animate_city_life(
@@ -240,5 +302,14 @@ mod tests {
         let sidewalk = road + SIDEWALK_OFFSET;
         assert!(sidewalk.abs() < CITY_LIMIT);
         assert!((-108.0_f32 - 7.0).abs() < CITY_LIMIT);
+    }
+
+    #[test]
+    fn streetlights_cover_selected_intersections_without_leaving_the_city() {
+        let positions = streetlight_positions();
+        assert_eq!(positions.len(), 36);
+        assert!(positions.iter().all(|position| {
+            position.x.abs() < CITY_LIMIT && position.z.abs() < CITY_LIMIT
+        }));
     }
 }
