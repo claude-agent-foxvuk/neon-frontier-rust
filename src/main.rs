@@ -1,3 +1,5 @@
+mod city_life;
+
 use bevy::{
     camera::Hdr,
     core_pipeline::tonemapping::Tonemapping,
@@ -61,6 +63,7 @@ fn main() {
     App::new()
         .insert_resource(Game::default())
         .add_plugins(DefaultPlugins)
+        .add_plugins(city_life::CityLifePlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, (controls, update_world, update_hud).chain())
         .run();
@@ -95,22 +98,39 @@ fn setup(
         ..default()
     });
 
-    commands.spawn((Mesh3d(cube.clone()), MeshMaterial3d(ground),
-        Transform::from_xyz(0.0, -0.25, 0.0).with_scale(Vec3::new(340.0, 0.5, 340.0))));
+    commands.spawn((
+        Mesh3d(cube.clone()),
+        MeshMaterial3d(ground),
+        Transform::from_xyz(0.0, -0.25, 0.0).with_scale(Vec3::new(340.0, 0.5, 340.0)),
+    ));
+
     for n in -3..=3 {
         let c = n as f32 * ROAD_SPACING;
-        commands.spawn((Mesh3d(cube.clone()), MeshMaterial3d(asphalt.clone()),
-            Transform::from_xyz(c, 0.01, 0.0).with_scale(Vec3::new(11.0, 0.04, 340.0))));
-        commands.spawn((Mesh3d(cube.clone()), MeshMaterial3d(asphalt.clone()),
-            Transform::from_xyz(0.0, 0.02, c).with_scale(Vec3::new(340.0, 0.04, 11.0))));
+        commands.spawn((
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(asphalt.clone()),
+            Transform::from_xyz(c, 0.01, 0.0).with_scale(Vec3::new(11.0, 0.04, 340.0)),
+        ));
+        commands.spawn((
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(asphalt.clone()),
+            Transform::from_xyz(0.0, 0.02, c).with_scale(Vec3::new(340.0, 0.04, 11.0)),
+        ));
         for dash in -16..=16 {
             let d = dash as f32 * 10.0;
-            commands.spawn((Mesh3d(cube.clone()), MeshMaterial3d(stripe.clone()),
-                Transform::from_xyz(c, 0.05, d).with_scale(Vec3::new(0.18, 0.03, 4.0))));
-            commands.spawn((Mesh3d(cube.clone()), MeshMaterial3d(stripe.clone()),
-                Transform::from_xyz(d, 0.06, c).with_scale(Vec3::new(4.0, 0.03, 0.18))));
+            commands.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(stripe.clone()),
+                Transform::from_xyz(c, 0.05, d).with_scale(Vec3::new(0.18, 0.03, 4.0)),
+            ));
+            commands.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(stripe.clone()),
+                Transform::from_xyz(d, 0.06, c).with_scale(Vec3::new(4.0, 0.03, 0.18)),
+            ));
         }
     }
+
     for x in -3_i32..=2 {
         for z in -3_i32..=2 {
             let px = x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
@@ -118,27 +138,59 @@ fn setup(
             let height = 8.0 + (((x + 3) * 7 + (z + 3) * 11) % 6) as f32 * 4.0;
             let color_index = (((x + 3) + 2 * (z + 3)) % 4) as usize;
             game.buildings.push(Vec2::new(px, pz));
-            commands.spawn((Mesh3d(cube.clone()), MeshMaterial3d(buildings[color_index].clone()),
+            commands.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(buildings[color_index].clone()),
                 Transform::from_xyz(px, height / 2.0, pz)
-                    .with_scale(Vec3::new(BUILDING_HALF * 2.0, height, BUILDING_HALF * 2.0))));
+                    .with_scale(Vec3::new(BUILDING_HALF * 2.0, height, BUILDING_HALF * 2.0)),
+            ));
         }
     }
-    commands.spawn((Mesh3d(cube.clone()), MeshMaterial3d(player_mat),
-        Transform::from_translation(game.player).with_scale(Vec3::new(0.7, 1.8, 0.5)), PlayerVisual));
-    commands.spawn((Mesh3d(cube.clone()), MeshMaterial3d(body),
-        Transform::from_translation(game.car).with_scale(Vec3::new(2.0, 1.3, 4.0)), CarVisual));
-    commands.spawn((Mesh3d(cube), MeshMaterial3d(marker_mat),
-        Transform::from_translation(OBJECTIVES[0]).with_scale(Vec3::new(1.1, 2.6, 1.1)), MissionMarker));
-    commands.spawn((DirectionalLight {
-        illuminance: 16_000.0,
-        shadow_maps_enabled: true,
-        ..default()
-    }, Transform::from_xyz(15.0, 30.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y)));
-    commands.spawn((Camera3d::default(), Hdr, Tonemapping::TonyMcMapface,
-        Bloom::NATURAL, Transform::from_xyz(0.0, 10.0, 18.0).looking_at(game.player, Vec3::Y), FollowCamera));
-    commands.spawn((Text::new("Neon Frontier"), Node {
-        position_type: PositionType::Absolute, top: px(14), left: px(14), ..default()
-    }, Hud));
+
+    commands.spawn((
+        Mesh3d(cube.clone()),
+        MeshMaterial3d(player_mat),
+        Transform::from_translation(game.player).with_scale(Vec3::new(0.7, 1.8, 0.5)),
+        PlayerVisual,
+    ));
+    commands.spawn((
+        Mesh3d(cube.clone()),
+        MeshMaterial3d(body),
+        Transform::from_translation(game.car).with_scale(Vec3::new(2.0, 1.3, 4.0)),
+        CarVisual,
+    ));
+    commands.spawn((
+        Mesh3d(cube),
+        MeshMaterial3d(marker_mat),
+        Transform::from_translation(OBJECTIVES[0]).with_scale(Vec3::new(1.1, 2.6, 1.1)),
+        MissionMarker,
+    ));
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 16_000.0,
+            shadow_maps_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(15.0, 30.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    commands.spawn((
+        Camera3d::default(),
+        Hdr,
+        Tonemapping::TonyMcMapface,
+        Bloom::NATURAL,
+        Transform::from_xyz(0.0, 10.0, 18.0).looking_at(game.player, Vec3::Y),
+        FollowCamera,
+    ));
+    commands.spawn((
+        Text::new("NEON FRONTIER"),
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(14),
+            left: px(14),
+            ..default()
+        },
+        Hud,
+    ));
 }
 
 fn collides(pos: Vec2, radius: f32, buildings: &[Vec2]) -> bool {
@@ -162,6 +214,7 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
     if game.paused {
         return;
     }
+
     let dt = time.delta_secs().min(0.05);
     if keys.just_pressed(KeyCode::KeyE) {
         if game.driving {
@@ -178,9 +231,12 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
             game.driving = true;
         }
     }
+
     if game.driving {
-        let throttle = (keys.pressed(KeyCode::KeyW) as i32 - keys.pressed(KeyCode::KeyS) as i32) as f32;
-        let steer = (keys.pressed(KeyCode::KeyA) as i32 - keys.pressed(KeyCode::KeyD) as i32) as f32;
+        let throttle = (keys.pressed(KeyCode::KeyW) as i32
+            - keys.pressed(KeyCode::KeyS) as i32) as f32;
+        let steer = (keys.pressed(KeyCode::KeyA) as i32
+            - keys.pressed(KeyCode::KeyD) as i32) as f32;
         game.speed = (game.speed + throttle * 14.0 * dt).clamp(-8.0, 24.0);
         game.speed *= (1.0 - 0.7 * dt).max(0.0);
         let speed_factor = (game.speed / 8.0).clamp(-1.0, 1.0);
@@ -194,8 +250,10 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
         }
         game.player = game.car;
     } else {
-        let x = (keys.pressed(KeyCode::KeyD) as i32 - keys.pressed(KeyCode::KeyA) as i32) as f32;
-        let z = (keys.pressed(KeyCode::KeyS) as i32 - keys.pressed(KeyCode::KeyW) as i32) as f32;
+        let x = (keys.pressed(KeyCode::KeyD) as i32
+            - keys.pressed(KeyCode::KeyA) as i32) as f32;
+        let z = (keys.pressed(KeyCode::KeyS) as i32
+            - keys.pressed(KeyCode::KeyW) as i32) as f32;
         let direction = Vec3::new(x, 0.0, z).normalize_or_zero();
         let run = if keys.pressed(KeyCode::ShiftLeft) { 8.0 } else { 5.0 };
         let next = game.player + direction * run * dt;
@@ -203,6 +261,7 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
             game.player = next;
         }
     }
+
     if game.stage < OBJECTIVES.len() {
         let position = if game.driving { game.car } else { game.player };
         let target = OBJECTIVES[game.stage];
@@ -216,15 +275,31 @@ fn controls(keys: Res<ButtonInput<KeyCode>>, time: Res<Time>, mut game: ResMut<G
 fn update_world(
     game: Res<Game>,
     time: Res<Time>,
-    mut players: Query<(&mut Transform, &mut Visibility), (With<PlayerVisual>, Without<CarVisual>, Without<FollowCamera>, Without<MissionMarker>)>,
-    mut cars: Query<&mut Transform, (With<CarVisual>, Without<PlayerVisual>, Without<FollowCamera>, Without<MissionMarker>)>,
-    mut cameras: Query<(Entity, &mut Transform, Option<&Bloom>), (With<FollowCamera>, Without<PlayerVisual>, Without<CarVisual>, Without<MissionMarker>)>,
-    mut markers: Query<(&mut Transform, &mut Visibility), (With<MissionMarker>, Without<PlayerVisual>, Without<CarVisual>, Without<FollowCamera>)>,
+    mut players: Query<
+        (&mut Transform, &mut Visibility),
+        (With<PlayerVisual>, Without<CarVisual>, Without<FollowCamera>, Without<MissionMarker>),
+    >,
+    mut cars: Query<
+        &mut Transform,
+        (With<CarVisual>, Without<PlayerVisual>, Without<FollowCamera>, Without<MissionMarker>),
+    >,
+    mut cameras: Query<
+        (Entity, &mut Transform, Option<&Bloom>),
+        (With<FollowCamera>, Without<PlayerVisual>, Without<CarVisual>, Without<MissionMarker>),
+    >,
+    mut markers: Query<
+        (&mut Transform, &mut Visibility),
+        (With<MissionMarker>, Without<PlayerVisual>, Without<CarVisual>, Without<FollowCamera>),
+    >,
     mut commands: Commands,
 ) {
     for (mut transform, mut visibility) in &mut players {
         transform.translation = game.player;
-        *visibility = if game.driving { Visibility::Hidden } else { Visibility::Visible };
+        *visibility = if game.driving {
+            Visibility::Hidden
+        } else {
+            Visibility::Visible
+        };
     }
     for mut transform in &mut cars {
         transform.translation = game.car;
@@ -238,8 +313,14 @@ fn update_world(
             *visibility = Visibility::Hidden;
         }
     }
+
     let target = if game.driving { game.car } else { game.player };
-    let desired = target + Vec3::new(0.0, 10.0, 15.0);
+    let desired = if game.driving {
+        let forward = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
+        target - forward * 14.0 + Vec3::Y * 7.0
+    } else {
+        target + Vec3::new(0.0, 7.0, 12.0)
+    };
     for (entity, mut camera, bloom) in &mut cameras {
         let blend = (time.delta_secs() * 4.0).clamp(0.0, 1.0);
         camera.translation = camera.translation.lerp(desired, blend);
@@ -254,13 +335,22 @@ fn update_world(
 
 fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<Hud>>) {
     let objective = if game.stage < OBJECTIVES.len() {
-        format!("Reach glowing checkpoint {}/{}", game.stage + 1, OBJECTIVES.len())
+        format!("Маршрут «Три маяка»: точка {}/{}", game.stage + 1, OBJECTIVES.len())
     } else {
-        "Route complete!".to_string()
+        "Маршрут выполнен! Награда получена".to_string()
+    };
+    let state = if game.paused {
+        "ПАУЗА"
+    } else if game.driving {
+        "ЗА РУЛЁМ"
+    } else {
+        "ПЕШКОМ"
     };
     for mut text in &mut labels {
-        text.0 = format!("NEON FRONTIER - EARLY PROTOTYPE\n{}\nCredits: {}\n{}\nWASD move/drive | Shift run | E enter/exit at low speed\nEsc pause | B bloom on/off",
-            objective, game.credits, if game.paused { "PAUSED" } else if game.driving { "DRIVING" } else { "ON FOOT" });
+        text.0 = format!(
+            "NEON FRONTIER • ранняя версия\n{}\nКредиты: {}\n{}\nWASD: движение/газ • Shift: бег • E: сесть/выйти\nEsc: пауза • B: bloom",
+            objective, game.credits, state
+        );
     }
 }
 
