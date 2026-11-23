@@ -1,6 +1,8 @@
 mod city_life;
 
-use bevy::{camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*};
+use bevy::{
+    camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
+};
 
 const WORLD_EDGE: f32 = 165.0;
 const ROAD_SPACING: f32 = 48.0;
@@ -158,7 +160,7 @@ fn setup(
         CarVisual,
     ));
     commands.spawn((
-        Mesh3d(cube),
+        Mesh3d(cube.clone()),
         MeshMaterial3d(marker_mat),
         Transform::from_translation(OBJECTIVES[0]).with_scale(Vec3::new(1.1, 2.6, 1.1)),
         MissionMarker,
