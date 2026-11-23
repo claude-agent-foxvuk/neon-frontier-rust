@@ -427,7 +427,11 @@ mod tests {
                 && position.y > 0.0
                 && position.y < 28.0
         }));
-        assert!(windows.iter().any(|(_, rotation)| *rotation == Quat::IDENTITY));
+        assert!(
+            windows
+                .iter()
+                .any(|(_, rotation)| *rotation == Quat::IDENTITY)
+        );
         assert!(windows.iter().any(|(_, rotation)| {
             rotation.angle_between(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)) < 1.0e-5
         }));
