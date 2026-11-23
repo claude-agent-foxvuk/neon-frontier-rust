@@ -48,11 +48,7 @@ fn streetlight_positions() -> Vec<Vec3> {
         for road_z in [-96.0, 0.0, 96.0] {
             for side_x in [-1.0, 1.0] {
                 for side_z in [-1.0, 1.0] {
-                    positions.push(Vec3::new(
-                        road_x + side_x * 7.4,
-                        0.0,
-                        road_z + side_z * 7.4,
-                    ));
+                    positions.push(Vec3::new(road_x + side_x * 7.4, 0.0, road_z + side_z * 7.4));
                 }
             }
         }
@@ -308,8 +304,10 @@ mod tests {
     fn streetlights_cover_selected_intersections_without_leaving_the_city() {
         let positions = streetlight_positions();
         assert_eq!(positions.len(), 36);
-        assert!(positions.iter().all(|position| {
-            position.x.abs() < CITY_LIMIT && position.z.abs() < CITY_LIMIT
-        }));
+        assert!(
+            positions
+                .iter()
+                .all(|position| { position.x.abs() < CITY_LIMIT && position.z.abs() < CITY_LIMIT })
+        );
     }
 }
