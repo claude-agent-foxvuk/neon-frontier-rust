@@ -12,6 +12,17 @@ pub struct Snapshot {
     pub car: Vec3,
     pub yaw: f32,
     pub speed: f32,
+    pub steering: f32,
+    pub lateral_speed: f32,
+    pub player_facing_yaw: f32,
+    pub player_moving: bool,
+    pub player_running: bool,
+    pub player_vertical_speed: f32,
+    pub player_grounded: bool,
+    pub punch_cooldown: f32,
+    pub camera_yaw: f32,
+    pub camera_orbit: f32,
+    pub camera_pitch: f32,
     pub stage: usize,
     pub credits: u32,
     pub driving: bool,
@@ -47,6 +58,19 @@ pub fn encode_snapshot(snapshot: &Snapshot) -> String {
     text.push_str(&format!("{}\n", snapshot.credits));
     text.push_str(&format!("{}\n", snapshot.driving));
     text.push_str(&format!("{}\n", snapshot.bloom));
+    let player_motion = [
+        snapshot.steering,
+        snapshot.lateral_speed,
+        snapshot.player_facing_yaw,
+        snapshot.player_vertical_speed,
+        snapshot.punch_cooldown,
+    ];
+    text.push_str(&record(&player_motion, None));
+    text.push_str(&format!("{}\n", snapshot.player_moving));
+    text.push_str(&format!("{}\n", snapshot.player_running));
+    text.push_str(&format!("{}\n", snapshot.player_grounded));
+    let camera = [snapshot.camera_yaw, snapshot.camera_orbit, snapshot.camera_pitch];
+    text.push_str(&record(&camera, None));
     let world = &snapshot.world;
     let status = [world.health, world.wanted_level as f32, world.wanted_timer];
     text.push_str(&record(&status, None));
@@ -134,11 +158,16 @@ fn parse_numbers_and_flag(line: &str, count: usize) -> Option<(Vec<f32>, bool)> 
 
 fn parse_count(line: &str, limit: usize) -> Option<usize> {
     let count = line.parse::<usize>().ok()?;
-    if count <= limit { Some(count) } else { None }
+    if count <= limit {
+        Some(count)
+    } else {
+        None
+    }
 }
 
 const MAX_RECORDS: usize = 4_096;
 const MAX_WORLD_COORDINATE: f32 = 200.0;
+const PLAYER_GROUND_Y: f32 = 0.9;
 
 fn valid_position(position: Vec3) -> bool {
     position.is_finite()
@@ -146,13 +175,38 @@ fn valid_position(position: Vec3) -> bool {
         && position.z.abs() <= MAX_WORLD_COORDINATE
 }
 
-fn valid_world(world: &WorldSnapshot) -> bool {
-    world.health.is_finite()
-        && (0.0..=100.0).contains(&world.health)
-        && world.wanted_level <= 6
-        && world.wanted_timer.is_finite()
-        && (0.0..=18.0).contains(&world.wanted_timer)
-        && world.traffic.iter().all(|car| {
+fn valid_snapshot(snapshot: &Snapshot) -> bool {
+    valid_position(snapshot.player)
+        && (PLAYER_GROUND_Y..=25.0).contains(&snapshot.player.y)
+        && valid_position(snapshot.car)
+        && (-2.0..=4.0).contains(&snapshot.car.y)
+        && snapshot.yaw.is_finite()
+        && snapshot.yaw.abs() <= 1_000_000.0
+        && (-8.0..=24.0).contains(&snapshot.speed)
+        && snapshot.steering.is_finite()
+        && (-1.0..=1.0).contains(&snapshot.steering)
+        && snapshot.lateral_speed.is_finite()
+        && (-4.0..=4.0).contains(&snapshot.lateral_speed)
+        && snapshot.player_facing_yaw.is_finite()
+        && snapshot.player_facing_yaw.abs() <= 1_000_000.0
+        && snapshot.player_vertical_speed.is_finite()
+        && (-30.0..=30.0).contains(&snapshot.player_vertical_speed)
+        && snapshot.punch_cooldown.is_finite()
+        && (0.0..=0.45).contains(&snapshot.punch_cooldown)
+        && snapshot.camera_yaw.is_finite()
+        && snapshot.camera_yaw.abs() <= 1_000_000.0
+        && snapshot.camera_orbit.is_finite()
+        && snapshot.camera_orbit.abs() <= 1_000_000.0
+        && (0.12..=1.05).contains(&snapshot.camera_pitch)
+        && (!snapshot.player_grounded
+            || ((snapshot.player.y - PLAYER_GROUND_Y).abs() < 0.001
+                && snapshot.player_vertical_speed.abs() < 0.001))
+        && snapshot.world.health.is_finite()
+        && (0.0..=100.0).contains(&snapshot.world.health)
+        && snapshot.world.wanted_level <= 6
+        && snapshot.world.wanted_timer.is_finite()
+        && (0.0..=18.0).contains(&snapshot.world.wanted_timer)
+        && snapshot.world.traffic.iter().all(|car| {
             valid_position(car.position)
                 && car.speed.is_finite()
                 && (0.0..=24.0).contains(&car.speed)
@@ -163,7 +217,7 @@ fn valid_world(world: &WorldSnapshot) -> bool {
                 && car.stop_timer.is_finite()
                 && (0.0..=10.0).contains(&car.stop_timer)
         })
-        && world.citizens.iter().all(|citizen| {
+        && snapshot.world.citizens.iter().all(|citizen| {
             valid_position(citizen.origin)
                 && citizen.displacement.is_finite()
                 && citizen.knock_velocity.is_finite()
@@ -172,11 +226,12 @@ fn valid_world(world: &WorldSnapshot) -> bool {
                 && citizen.health.is_finite()
                 && (0.0..=3.0).contains(&citizen.health)
         })
-        && world
+        && snapshot
+            .world
             .patrols
             .iter()
             .all(|patrol| valid_position(patrol.position))
-        && world.officers.iter().all(|officer| {
+        && snapshot.world.officers.iter().all(|officer| {
             valid_position(officer.position)
                 && officer.shot_timer.is_finite()
                 && (0.0..=5.0).contains(&officer.shot_timer)
@@ -241,8 +296,30 @@ fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
         patrols,
         officers,
     };
-    if valid_world(&world) {
-        Some(world)
+    let sample = Snapshot {
+        player: Vec3::new(0.0, PLAYER_GROUND_Y, 0.0),
+        car: Vec3::new(0.0, 0.65, 0.0),
+        yaw: 0.0,
+        speed: 0.0,
+        steering: 0.0,
+        lateral_speed: 0.0,
+        player_facing_yaw: 0.0,
+        player_moving: false,
+        player_running: false,
+        player_vertical_speed: 0.0,
+        player_grounded: true,
+        punch_cooldown: 0.0,
+        camera_yaw: 0.0,
+        camera_orbit: 0.0,
+        camera_pitch: 0.38,
+        stage: 0,
+        credits: 0,
+        driving: false,
+        bloom: true,
+        world,
+    };
+    if valid_snapshot(&sample) {
+        Some(sample.world)
     } else {
         None
     }
@@ -260,31 +337,42 @@ pub fn decode_snapshot(text: &str) -> Option<Snapshot> {
     let credits = lines.next()?.parse::<u32>().ok()?;
     let driving = parse_flag(lines.next()?)?;
     let bloom = parse_flag(lines.next()?)?;
+    let player_motion = parse_numbers(lines.next()?, 5)?;
+    let player_moving = parse_flag(lines.next()?)?;
+    let player_running = parse_flag(lines.next()?)?;
+    let player_grounded = parse_flag(lines.next()?)?;
+    let camera = parse_numbers(lines.next()?, 3)?;
     let world = decode_world(&mut lines)?;
     if lines.next().is_some() {
         return None;
     }
-    let finites = [
-        player[0], player[1], player[2], car[0], car[1], car[2], motion[0], motion[1],
-    ];
-    if !finites.iter().all(|value| value.is_finite())
-        || !valid_position(Vec3::new(player[0], player[1], player[2]))
-        || !valid_position(Vec3::new(car[0], car[1], car[2]))
-        || motion[1].abs() > 24.0
-    {
-        return None;
-    }
-    Some(Snapshot {
+    let snapshot = Snapshot {
         player: Vec3::new(player[0], player[1], player[2]),
         car: Vec3::new(car[0], car[1], car[2]),
         yaw: motion[0],
         speed: motion[1],
+        steering: player_motion[0],
+        lateral_speed: player_motion[1],
+        player_facing_yaw: player_motion[2],
+        player_moving,
+        player_running,
+        player_vertical_speed: player_motion[3],
+        player_grounded,
+        punch_cooldown: player_motion[4],
+        camera_yaw: camera[0],
+        camera_orbit: camera[1],
+        camera_pitch: camera[2],
         stage,
         credits,
         driving,
         bloom,
         world,
-    })
+    };
+    if valid_snapshot(&snapshot) {
+        Some(snapshot)
+    } else {
+        None
+    }
 }
 
 pub fn save_snapshot(snapshot: &Snapshot) -> io::Result<()> {
@@ -307,10 +395,21 @@ mod tests {
 
     fn sample() -> Snapshot {
         Snapshot {
-            player: Vec3::new(12.5, 0.9, -18.25),
+            player: Vec3::new(12.5, 1.1, -18.25),
             car: Vec3::new(14.0, 0.65, -20.0),
             yaw: 1.25,
             speed: 8.5,
+            steering: 0.35,
+            lateral_speed: -1.2,
+            player_facing_yaw: 0.75,
+            player_moving: true,
+            player_running: true,
+            player_vertical_speed: -2.4,
+            player_grounded: false,
+            punch_cooldown: 0.2,
+            camera_yaw: 1.4,
+            camera_orbit: -0.2,
+            camera_pitch: 0.55,
             stage: 2,
             credits: 200,
             driving: true,
@@ -351,6 +450,20 @@ mod tests {
     fn save_format_round_trips_game_state() {
         let snapshot = sample();
         assert_eq!(decode_snapshot(&encode_snapshot(&snapshot)), Some(snapshot));
+    }
+
+    #[test]
+    fn save_format_round_trips_player_motion_and_camera() {
+        let decoded = decode_snapshot(&encode_snapshot(&sample())).expect("save decodes");
+        assert_eq!(decoded.player.y, 1.1);
+        assert_eq!(decoded.player_vertical_speed, -2.4);
+        assert!(!decoded.player_grounded);
+        assert!(decoded.player_moving && decoded.player_running);
+        assert_eq!(decoded.steering, 0.35);
+        assert_eq!(decoded.lateral_speed, -1.2);
+        assert_eq!(decoded.camera_yaw, 1.4);
+        assert_eq!(decoded.camera_pitch, 0.55);
+        assert_eq!(decoded.punch_cooldown, 0.2);
     }
 
     #[test]
