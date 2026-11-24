@@ -699,9 +699,9 @@ fn controls(
         game.yaw += game.steering * speed_factor * 1.8 * dt;
         let direction = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
         let right = Vec3::new(game.yaw.cos(), 0.0, -game.yaw.sin());
-        game.lateral_speed = (game.lateral_speed
-            + game.steering * game.speed.abs() * 0.06 * dt)
-            .clamp(-2.0, 2.0);
+        game.lateral_speed =
+            (game.lateral_speed + game.steering * game.speed.abs() * 0.06 * dt)
+                .clamp(-2.0, 2.0);
         game.lateral_speed *= (1.0 - 1.8 * dt).max(0.0);
         let intended = (Vec2::new(direction.x, direction.z) * game.speed
             + Vec2::new(right.x, right.z) * game.lateral_speed)
