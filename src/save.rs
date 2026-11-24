@@ -1,9 +1,12 @@
 use bevy::prelude::*;
+use std::fmt::Write as _;
 use std::io;
+
+use crate::city_life::{CitizenSave, OfficerSave, PatrolSave, TrafficSave, WorldSnapshot};
 
 pub const SAVE_FILE_NAME: &str = "neon_frontier_save.txt";
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Snapshot {
     pub player: Vec3,
     pub car: Vec3,
@@ -13,33 +16,182 @@ pub struct Snapshot {
     pub credits: u32,
     pub driving: bool,
     pub bloom: bool,
+    pub world: WorldSnapshot,
 }
 
-pub fn encode_snapshot(snapshot: Snapshot) -> String {
-    format!(
-        "NEON_FRONTIER_SAVE_V1\n{:.4} {:.4} {:.4}\n{:.4} {:.4} {:.4}\n{:.4} {:.4}\n{}\n{}\n{}\n{}\n",
-        snapshot.player.x,
-        snapshot.player.y,
-        snapshot.player.z,
-        snapshot.car.x,
-        snapshot.car.y,
-        snapshot.car.z,
-        snapshot.yaw,
-        snapshot.speed,
-        snapshot.stage,
-        snapshot.credits,
-        snapshot.driving,
-        snapshot.bloom
-    )
+fn write_vec3(text: &mut String, value: Vec3) {
+    let _ = writeln!(text, "{:.4} {:.4} {:.4}", value.x, value.y, value.z);
 }
 
-fn parse_floats<const N: usize>(line: &str) -> Option<[f32; N]> {
+pub fn encode_snapshot(snapshot: &Snapshot) -> String {
+    let mut text = String::new();
+    text.push_str("NEON_FRONTIER_SAVE_V1\n");
+    write_vec3(&mut text, snapshot.player);
+    write_vec3(&mut text, snapshot.car);
+    let _ = writeln!(text, "{:.4} {:.4}", snapshot.yaw, snapshot.speed);
+    let _ = writeln!(text, "{}", snapshot.stage);
+    let _ = writeln!(text, "{}", snapshot.credits);
+    let _ = writeln!(text, "{}", snapshot.driving);
+    let _ = writeln!(text, "{}", snapshot.bloom);
+    let world = &snapshot.world;
+    let _ = writeln!(
+        text,
+        "{:.4} {} {:.4}",
+        world.health, world.wanted_level, world.wanted_timer
+    );
+    let _ = writeln!(text, "{}", world.traffic.len());
+    for car in &world.traffic {
+        let _ = writeln!(
+            text,
+            "{:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {}",
+            car.position.x,
+            car.position.y,
+            car.position.z,
+            car.speed,
+            car.direction,
+            car.lane_offset,
+            car.stop_timer,
+            car.along_x
+        );
+    }
+    let _ = writeln!(text, "{}", world.citizens.len());
+    for citizen in &world.citizens {
+        let _ = writeln!(
+            text,
+            "{:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {}",
+            citizen.origin.x,
+            citizen.origin.y,
+            citizen.origin.z,
+            citizen.displacement.x,
+            citizen.displacement.y,
+            citizen.displacement.z,
+            citizen.knock_velocity.x,
+            citizen.knock_velocity.y,
+            citizen.knock_velocity.z,
+            citizen.knocked,
+            citizen.health,
+            citizen.dead
+        );
+    }
+    let _ = writeln!(text, "{}", world.patrols.len());
+    for patrol in &world.patrols {
+        write_vec3(&mut text, patrol.position);
+    }
+    let _ = writeln!(text, "{}", world.officers.len());
+    for officer in &world.officers {
+        let _ = writeln!(
+            text,
+            "{:.4} {:.4} {:.4} {:.4} {}",
+            officer.position.x,
+            officer.position.y,
+            officer.position.z,
+            officer.shot_timer,
+            officer.active
+        );
+    }
+    text
+}
+
+fn parse_numbers(line: &str, count: usize) -> Option<Vec<f32>> {
     let values = line
         .split_whitespace()
         .map(str::parse::<f32>)
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
-    values.try_into().ok()
+    if values.len() == count {
+        Some(values)
+    } else {
+        None
+    }
+}
+
+fn parse_flag(value: &str) -> Option<bool> {
+    match value {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_numbers_and_flag(line: &str, count: usize) -> Option<(Vec<f32>, bool)> {
+    let mut parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() != count + 1 {
+        return None;
+    }
+    let flag = parse_flag(parts.pop()?)?;
+    let values = parts
+        .iter()
+        .map(|value| value.parse::<f32>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    Some((values, flag))
+}
+
+fn parse_count(line: &str, limit: usize) -> Option<usize> {
+    let count = line.parse::<usize>().ok()?;
+    if count <= limit {
+        Some(count)
+    } else {
+        None
+    }
+}
+
+const MAX_RECORDS: usize = 4_096;
+
+fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
+    let status = parse_numbers(lines.next()?, 3)?;
+    let traffic_count = parse_count(lines.next()?, MAX_RECORDS)?;
+    let mut traffic = Vec::with_capacity(traffic_count);
+    for _ in 0..traffic_count {
+        let (values, along_x) = parse_numbers_and_flag(lines.next()?, 7)?;
+        traffic.push(TrafficSave {
+            position: Vec3::new(values[0], values[1], values[2]),
+            speed: values[3],
+            direction: values[4],
+            lane_offset: values[5],
+            stop_timer: values[6],
+            along_x,
+        });
+    }
+    let citizen_count = parse_count(lines.next()?, MAX_RECORDS)?;
+    let mut citizens = Vec::with_capacity(citizen_count);
+    for _ in 0..citizen_count {
+        let (values, dead) = parse_numbers_and_flag(lines.next()?, 11)?;
+        citizens.push(CitizenSave {
+            origin: Vec3::new(values[0], values[1], values[2]),
+            displacement: Vec3::new(values[3], values[4], values[5]),
+            knock_velocity: Vec3::new(values[6], values[7], values[8]),
+            knocked: values[9],
+            health: values[10],
+            dead,
+        });
+    }
+    let patrol_count = parse_count(lines.next()?, MAX_RECORDS)?;
+    let mut patrols = Vec::with_capacity(patrol_count);
+    for _ in 0..patrol_count {
+        let values = parse_numbers(lines.next()?, 3)?;
+        patrols.push(PatrolSave {
+            position: Vec3::new(values[0], values[1], values[2]),
+        });
+    }
+    let officer_count = parse_count(lines.next()?, MAX_RECORDS)?;
+    let mut officers = Vec::with_capacity(officer_count);
+    for _ in 0..officer_count {
+        let (values, active) = parse_numbers_and_flag(lines.next()?, 4)?;
+        officers.push(OfficerSave {
+            position: Vec3::new(values[0], values[1], values[2]),
+            shot_timer: values[3],
+            active,
+        });
+    }
+    Some(WorldSnapshot {
+        health: status[0],
+        wanted_level: status[1].clamp(0.0, 6.0) as u8,
+        wanted_timer: status[2],
+        traffic,
+        citizens,
+        patrols,
+        officers,
+    })
 }
 
 pub fn decode_snapshot(text: &str) -> Option<Snapshot> {
@@ -47,20 +199,21 @@ pub fn decode_snapshot(text: &str) -> Option<Snapshot> {
     if lines.next()? != "NEON_FRONTIER_SAVE_V1" {
         return None;
     }
-    let player = parse_floats::<3>(lines.next()?)?;
-    let car = parse_floats::<3>(lines.next()?)?;
-    let motion = parse_floats::<2>(lines.next()?)?;
+    let player = parse_numbers(lines.next()?, 3)?;
+    let car = parse_numbers(lines.next()?, 3)?;
+    let motion = parse_numbers(lines.next()?, 2)?;
     let stage = lines.next()?.parse::<usize>().ok()?;
     let credits = lines.next()?.parse::<u32>().ok()?;
-    let driving = lines.next()?.parse::<bool>().ok()?;
-    let bloom = lines.next()?.parse::<bool>().ok()?;
+    let driving = parse_flag(lines.next()?)?;
+    let bloom = parse_flag(lines.next()?)?;
+    let world = decode_world(&mut lines)?;
     if lines.next().is_some() {
         return None;
     }
-    let values = [
+    let finites = [
         player[0], player[1], player[2], car[0], car[1], car[2], motion[0], motion[1],
     ];
-    if !values.iter().all(|value| value.is_finite()) {
+    if !finites.iter().all(|value| value.is_finite()) {
         return None;
     }
     Some(Snapshot {
@@ -72,10 +225,11 @@ pub fn decode_snapshot(text: &str) -> Option<Snapshot> {
         credits,
         driving,
         bloom,
+        world,
     })
 }
 
-pub fn save_snapshot(snapshot: Snapshot) -> io::Result<()> {
+pub fn save_snapshot(snapshot: &Snapshot) -> io::Result<()> {
     std::fs::write(SAVE_FILE_NAME, encode_snapshot(snapshot))
 }
 
@@ -93,9 +247,8 @@ pub fn load_snapshot() -> io::Result<Snapshot> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn save_format_round_trips_game_state() {
-        let snapshot = Snapshot {
+    fn sample() -> Snapshot {
+        Snapshot {
             player: Vec3::new(12.5, 0.9, -18.25),
             car: Vec3::new(14.0, 0.65, -20.0),
             yaw: 1.25,
@@ -104,8 +257,55 @@ mod tests {
             credits: 200,
             driving: true,
             bloom: false,
-        };
-        assert_eq!(decode_snapshot(&encode_snapshot(snapshot)), Some(snapshot));
+            world: WorldSnapshot {
+                health: 64.0,
+                wanted_level: 3,
+                wanted_timer: 12.5,
+                traffic: vec![TrafficSave {
+                    position: Vec3::new(4.0, 0.48, 2.1),
+                    speed: 7.2,
+                    direction: -1.0,
+                    along_x: true,
+                    lane_offset: 0.6,
+                    stop_timer: 0.4,
+                }],
+                citizens: vec![CitizenSave {
+                    origin: Vec3::new(-8.0, 0.82, 7.0),
+                    displacement: Vec3::new(0.5, 0.0, 0.25),
+                    knock_velocity: Vec3::ZERO,
+                    knocked: 0.0,
+                    health: 2.0,
+                    dead: false,
+                }],
+                patrols: vec![PatrolSave {
+                    position: Vec3::new(-48.0, 0.48, -2.0),
+                }],
+                officers: vec![OfficerSave {
+                    position: Vec3::new(-45.2, 0.82, -2.0),
+                    active: true,
+                    shot_timer: 0.35,
+                }],
+            },
+        }
+    }
+
+    #[test]
+    fn save_format_round_trips_game_state() {
+        let snapshot = sample();
+        assert_eq!(decode_snapshot(&encode_snapshot(&snapshot)), Some(snapshot));
+    }
+
+    #[test]
+    fn save_format_round_trips_the_whole_world() {
+        let snapshot = sample();
+        let decoded = decode_snapshot(&encode_snapshot(&snapshot)).expect("save decodes");
+        assert_eq!(decoded.world.health, 64.0);
+        assert_eq!(decoded.world.wanted_level, 3);
+        assert_eq!(decoded.world.traffic.len(), 1);
+        assert_eq!(decoded.world.citizens.len(), 1);
+        assert_eq!(decoded.world.patrols.len(), 1);
+        assert_eq!(decoded.world.officers.len(), 1);
+        assert!(decoded.world.officers[0].active);
     }
 
     #[test]
