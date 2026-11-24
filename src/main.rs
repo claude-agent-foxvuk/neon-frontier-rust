@@ -919,19 +919,15 @@ fn update_hud(
         return;
     }
     let position = if game.driving { game.car } else { game.player };
-    let objective = if game.stage < OBJECTIVES.len() {
-        let target = mission_target(game.stage, game.credits);
-        let distance = Vec2::new(position.x - target.x, position.z - target.z).length();
-        format!(
-            "Маршрут «{}»: точка {}/{} • {:.0} м",
-            mission_name(game.credits),
-            game.stage + 1,
-            OBJECTIVES.len(),
-            distance
-        )
-    } else {
-        "Маршрут выполнен! Награда получена".to_string()
-    };
+    let target = mission_target(game.stage, game.credits);
+    let distance = Vec2::new(position.x - target.x, position.z - target.z).length();
+    let objective = format!(
+        "Маршрут «{}»: точка {}/{} • {:.0} м",
+        mission_name(game.credits),
+        game.stage + 1,
+        OBJECTIVES.len(),
+        distance
+    );
     let mode = if game.paused {
         "ПАУЗА — Esc или ЛКМ, чтобы продолжить"
     } else if game.driving {
