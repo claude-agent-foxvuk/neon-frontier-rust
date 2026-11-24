@@ -29,7 +29,9 @@ const PLAYER_BODY_RADIUS: f32 = 0.45;
 const PLAYER_CAR_RADIUS: f32 = 2.2;
 
 #[derive(Component)]
-struct PlayerVisual;
+struct PlayerVisual {
+    facing_yaw: f32,
+}
 
 #[derive(Component)]
 struct CarVisual;
@@ -50,6 +52,7 @@ struct Game {
     lateral_speed: f32,
     player_facing_yaw: f32,
     player_moving: bool,
+    player_running: bool,
     player_vertical_speed: f32,
     player_grounded: bool,
     punch_cooldown: f32,
@@ -79,6 +82,7 @@ impl Default for Game {
             lateral_speed: 0.0,
             player_facing_yaw: 0.0,
             player_moving: false,
+            player_running: false,
             player_vertical_speed: 0.0,
             player_grounded: true,
             punch_cooldown: 0.0,
@@ -352,7 +356,9 @@ fn setup(
         Mesh3d(cube.clone()),
         MeshMaterial3d(player_mat),
         Transform::from_translation(game.player).with_scale(Vec3::new(0.7, 1.8, 0.5)),
-        PlayerVisual,
+        PlayerVisual {
+            facing_yaw: game.player_facing_yaw,
+        },
     ));
     commands.spawn((
         Mesh3d(cube.clone()),
@@ -645,6 +651,7 @@ fn controls(
     }
     if game.paused {
         game.player_moving = false;
+        game.player_running = false;
         return;
     }
 
@@ -687,6 +694,7 @@ fn controls(
         }
     }
 
+    game.player_running = false;
     if game.driving {
         game.player_moving = false;
         let accelerating = keys.pressed(KeyCode::KeyW);
@@ -747,6 +755,7 @@ fn controls(
         game.player.z = moved.y;
         let movement = Vec3::new(moved.x - start.x, 0.0, moved.y - start.y);
         game.player_moving = movement.length_squared() > 1.0e-6;
+        game.player_running = game.player_moving && run > PLAYER_WALK_SPEED;
         if let Some(yaw) = facing_yaw(movement) {
             game.player_facing_yaw = yaw;
         }
@@ -787,7 +796,7 @@ fn update_world(
     game: Res<Game>,
     time: Res<Time>,
     mut players: Query<
-        (&mut Transform, &mut Visibility),
+        (&mut Transform, &mut Visibility, &mut PlayerVisual),
         (
             With<PlayerVisual>,
             Without<CarVisual>,
@@ -825,12 +834,32 @@ fn update_world(
     mut commands: Commands,
 ) {
     let elapsed_secs = time.elapsed_secs();
-    for (mut transform, mut visibility) in &mut players {
+    let dt = time.delta_secs().min(0.05);
+    for (mut transform, mut visibility, mut visual) in &mut players {
         transform.translation = game.player;
-        if game.player_moving && !game.driving {
-            transform.translation.y += (elapsed_secs * 9.0).sin() * 0.045;
+        let moving = game.player_moving && !game.driving;
+        let running = moving && game.player_running;
+        let step_rate = if running { 12.0 } else { 7.0 };
+        let step_phase = elapsed_secs * step_rate;
+        if moving {
+            let bob_amount = if running { 0.06 } else { 0.035 };
+            transform.translation.y += (step_phase * 2.0).sin() * bob_amount;
         }
-        transform.rotation = Quat::from_rotation_y(game.player_facing_yaw);
+
+        let turn_delta = (game.player_facing_yaw - visual.facing_yaw + std::f32::consts::PI)
+            .rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        visual.facing_yaw += turn_delta * (1.0 - (-14.0 * dt).exp());
+
+        let stride_sway = if moving {
+            step_phase.sin() * if running { 0.12 } else { 0.065 }
+        } else {
+            0.0
+        };
+        let run_lean = if running { -0.2 } else { 0.0 };
+        transform.rotation = Quat::from_rotation_y(visual.facing_yaw)
+            * Quat::from_rotation_x(run_lean)
+            * Quat::from_rotation_z(stride_sway);
         *visibility = if game.driving {
             Visibility::Hidden
         } else {
