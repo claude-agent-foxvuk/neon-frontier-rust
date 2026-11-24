@@ -267,7 +267,8 @@ fn restore_world(
     for ((transform, _), saved) in patrols.iter_mut().zip(snapshot.patrols.iter()) {
         transform.translation = saved.position;
     }
-    for ((transform, officer, visibility), saved) in officers.iter_mut().zip(snapshot.officers.iter())
+    for ((transform, officer, visibility), saved) in
+        officers.iter_mut().zip(snapshot.officers.iter())
     {
         transform.translation = saved.position;
         officer.active = saved.active;
@@ -444,7 +445,8 @@ fn spawn_city_life(
         commands.spawn((
             Mesh3d(car_mesh.clone()),
             MeshMaterial3d(car_materials[(road + 1) % car_materials.len()].clone()),
-            Transform::from_translation(along_z).with_rotation(traffic_rotation(false, direction_z)),
+            Transform::from_translation(along_z)
+                .with_rotation(traffic_rotation(false, direction_z)),
             TrafficCar {
                 speed: 6.6 + (road % 2) as f32 * 1.4,
                 direction: direction_z,
@@ -792,7 +794,9 @@ fn traffic_obstacle_ahead(
     };
     blocks_path(player)
         || (!in_vehicle && vehicle.map_or(false, |position| blocks_path(position)))
-        || police_positions.iter().any(|position| blocks_path(*position))
+        || police_positions
+            .iter()
+            .any(|position| blocks_path(*position))
         || car_positions.iter().enumerate().any(|(other, position)| {
             other != car_index && blocks_path(Vec2::new(position.x, position.z))
         })
@@ -884,7 +888,10 @@ fn simulate_city_life(
     let parked_vehicle = if probe.in_vehicle {
         None
     } else {
-        Some(Vec2::new(probe.vehicle_position.x, probe.vehicle_position.z))
+        Some(Vec2::new(
+            probe.vehicle_position.x,
+            probe.vehicle_position.z,
+        ))
     };
     let player_radius = if probe.in_vehicle {
         CAR_BODY_RADIUS
