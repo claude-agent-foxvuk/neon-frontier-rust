@@ -25,7 +25,7 @@ fn record(values: &[f32], flag: Option<bool>) -> String {
         if index > 0 {
             line.push(' ');
         }
-        let _ = write!(line, "{:.4}", value);
+        let _ = write!(line, "{:.9}", value);
     }
     if let Some(flag) = flag {
         line.push(' ');
@@ -367,6 +367,19 @@ mod tests {
     }
 
     #[test]
+    fn save_v1_round_trips_f32_precision() {
+        let mut snapshot = sample();
+        snapshot.player.x = 12.123_456;
+        snapshot.yaw = 0.123_456_78;
+        snapshot.world.traffic[0].lane_offset = 0.123_456_78;
+
+        let encoded = encode_snapshot(&snapshot);
+
+        assert!(encoded.starts_with("NEON_FRONTIER_SAVE_V1\n"));
+        assert_eq!(decode_snapshot(&encoded), Some(snapshot));
+    }
+
+    #[test]
     fn save_decoder_rejects_invalid_or_non_finite_data() {
         let invalid_version = "NEON_FRONTIER_SAVE_V9\n";
         let non_finite = "NEON_FRONTIER_SAVE_V1\nNaN 0 0\n0 0 0\n0 0\n0\n0\nfalse\ntrue\n";
@@ -376,7 +389,7 @@ mod tests {
 
     #[test]
     fn save_decoder_rejects_non_finite_world_state() {
-        let encoded = encode_snapshot(&sample()).replace("64.0000", "NaN");
+        let encoded = encode_snapshot(&sample()).replace("64.000000000", "NaN");
         assert!(decode_snapshot(&encoded).is_none());
     }
 
