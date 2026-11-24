@@ -12,13 +12,29 @@ pub fn move_with_slide(start: Vec2, delta: Vec2, mut blocked: impl FnMut(Vec2) -
     let step = delta / steps as f32;
     let mut position = start;
     for _ in 0..steps {
-        let along_x = position + Vec2::new(step.x, 0.0);
-        if !blocked(along_x) {
-            position = along_x;
+        let direct = position + step;
+        if !blocked(direct) {
+            position = direct;
+            continue;
         }
-        let along_y = position + Vec2::new(0.0, step.y);
-        if !blocked(along_y) {
-            position = along_y;
+        if step.x.abs() >= step.y.abs() {
+            let along_x = position + Vec2::new(step.x, 0.0);
+            if !blocked(along_x) {
+                position = along_x;
+            }
+            let along_y = position + Vec2::new(0.0, step.y);
+            if !blocked(along_y) {
+                position = along_y;
+            }
+        } else {
+            let along_y = position + Vec2::new(0.0, step.y);
+            if !blocked(along_y) {
+                position = along_y;
+            }
+            let along_x = position + Vec2::new(step.x, 0.0);
+            if !blocked(along_x) {
+                position = along_x;
+            }
         }
     }
     position
@@ -64,6 +80,12 @@ mod tests {
         let position = move_with_slide(Vec2::ZERO, Vec2::new(1.0, 1.0), |point| point.x > 0.4);
         assert!(position.x <= 0.4);
         assert!(position.y > 0.8);
+    }
+
+    #[test]
+    fn unobstructed_diagonal_motion_keeps_its_direct_path() {
+        let position = move_with_slide(Vec2::ZERO, Vec2::new(1.0, 1.0), |_| false);
+        assert!(position.distance(Vec2::new(1.0, 1.0)) < 1.0e-5);
     }
 
     #[test]
