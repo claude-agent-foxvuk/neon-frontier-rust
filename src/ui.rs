@@ -13,6 +13,22 @@ pub fn hud_font() -> TextFont {
     }
 }
 
+fn wanted_status(state: &str) -> String {
+    let Some((mode, stars)) = state.split_once(" • розыск: ") else {
+        return state.to_string();
+    };
+    let level = stars.chars().filter(|character| *character == '★').count();
+    let response = match level {
+        0 => "патрули не разыскивают игрока",
+        1 => "патруль преследует на автомобиле",
+        2 => "патруль ускоряет автомобильный перехват",
+        3 => "преследование становится интенсивнее",
+        4 => "городской розыск усиливается",
+        _ => "максимальный уровень розыска",
+    };
+    format!("{mode}\nРОЗЫСК {level}/5 • {response}")
+}
+
 pub fn compose_hud(
     objective: &str,
     credits: u32,
@@ -24,7 +40,13 @@ pub fn compose_hud(
 ) -> String {
     format!(
         "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • F5: сохранить • F9: загрузить\n{}",
-        objective, credits, state, interaction, speed, mouse_hint, notice
+        objective,
+        credits,
+        wanted_status(state),
+        interaction,
+        speed,
+        mouse_hint,
+        notice
     )
 }
 
@@ -56,6 +78,17 @@ mod tests {
         assert!(hud.contains("Кредиты: 100"));
         assert!(hud.contains("WASD: движение/газ"));
         assert!(hud.contains("Space: прыжок • F: удар"));
+        assert!(hud.contains("ПЕШКОМ"));
         assert!(hud.contains("Сохранение загружено"));
+    }
+
+    #[test]
+    fn first_and_second_wanted_stars_have_distinct_hud_statuses() {
+        let one_star = wanted_status("ПЕШКОМ • розыск: ★");
+        let two_stars = wanted_status("ПЕШКОМ • розыск: ★★");
+
+        assert!(one_star.contains("РОЗЫСК 1/5 • патруль преследует на автомобиле"));
+        assert!(two_stars.contains("РОЗЫСК 2/5 • патруль ускоряет автомобильный перехват"));
+        assert_ne!(one_star, two_stars);
     }
 }
