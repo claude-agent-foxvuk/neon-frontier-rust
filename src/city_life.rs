@@ -41,6 +41,32 @@ struct PolicePatrol {
     phase: f32,
 }
 
+#[derive(Clone, Copy)]
+struct PoliceTactics {
+    speed: f32,
+    stop_distance: f32,
+    flank_distance: f32,
+    search_radius: f32,
+}
+
+fn police_tactics(level: u8, patrol_index: usize, now: f32) -> PoliceTactics {
+    let search_scale = 0.75 + 0.25 * (now * 0.8 + patrol_index as f32 * 1.7).sin().abs();
+    let (speed, stop_distance, flank_distance, search_radius) = match level {
+        1 => (5.5, 4.0, 0.0, 0.0),
+        2 => (7.0, 4.5, 0.0, 1.5),
+        3 => (8.5, 5.0, 5.0, 2.5),
+        4 => (10.0, 5.5, 8.0, 3.5),
+        5 => (11.5, 6.0, 12.0, 5.0),
+        _ => (13.0, 6.5, 16.0, 7.0),
+    };
+    PoliceTactics {
+        speed,
+        stop_distance,
+        flank_distance,
+        search_radius: search_radius * search_scale,
+    }
+}
+
 #[derive(Component)]
 struct Citizen {
     origin: Vec3,
@@ -704,8 +730,19 @@ fn simulate_city_life(
         .collect();
     for (index, (mut transform, patrol)) in (&mut patrols).into_iter().enumerate() {
         let position = Vec2::new(transform.translation.x, transform.translation.z);
-        let target = if wanted.level > 0 {
-            player_flat
+        let tactics = if wanted.level > 0 {
+            Some(police_tactics(wanted.level, index, now))
+        } else {
+            None
+        };
+        let target = if let Some(tactics) = tactics {
+            let to_player = player_flat - position;
+            let side = Vec2::new(-to_player.y, to_player.x).normalize_or_zero();
+            let flank_side = if index % 2 == 0 { 1.0 } else { -1.0 };
+            let search_phase = now * (0.45 + wanted.level as f32 * 0.08) + patrol.phase;
+            let search_offset =
+                Vec2::new(search_phase.cos(), search_phase.sin()) * tactics.search_radius;
+            player_flat + side * (tactics.flank_distance * flank_side) + search_offset
         } else {
             patrol.home
                 + Vec2::new(
@@ -715,13 +752,10 @@ fn simulate_city_life(
         };
         let delta = target - position;
         let distance = delta.length();
-        if distance > 5.5 {
-            let speed = if wanted.level > 0 {
-                8.0 + wanted.level as f32 * 1.2
-            } else {
-                2.4
-            };
-            let movement = delta.normalize() * (speed * dt).min(distance - 5.5);
+        let stop_distance = tactics.map_or(5.5, |tactics| tactics.stop_distance);
+        if distance > stop_distance {
+            let speed = tactics.map_or(2.4, |tactics| tactics.speed);
+            let movement = delta.normalize() * (speed * dt).min(distance - stop_distance);
             let mut blockers: Vec<Vec2> = car_positions
                 .iter()
                 .map(|car| Vec2::new(car.x, car.z))
@@ -838,6 +872,31 @@ mod tests {
         assert!(person.dead);
         assert!(!damage_citizen(&mut person, 1.0));
         assert_eq!(person.health, 0.0);
+    }
+
+    #[test]
+    fn police_tactics_distinguish_all_wanted_levels() {
+        let tactics: Vec<_> = (1..=WANTED_LEVEL_MAX)
+            .map(|level| police_tactics(level, 0, 0.0))
+            .collect();
+        for index in 0..tactics.len() {
+            assert!(
+                tactics[..index]
+                    .iter()
+                    .all(|other| other.speed != tactics[index].speed)
+            );
+            assert!(
+                tactics[..index]
+                    .iter()
+                    .all(|other| other.stop_distance != tactics[index].stop_distance)
+            );
+            assert!(
+                tactics[..index]
+                    .iter()
+                    .all(|other| other.flank_distance != tactics[index].flank_distance)
+            );
+        }
+        assert!(tactics[5].speed > tactics[0].speed);
     }
 
     #[test]
