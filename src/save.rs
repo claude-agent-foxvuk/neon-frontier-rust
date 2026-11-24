@@ -19,31 +19,40 @@ pub struct Snapshot {
     pub world: WorldSnapshot,
 }
 
-fn write_vec3(text: &mut String, value: Vec3) {
-    let _ = writeln!(text, "{:.4} {:.4} {:.4}", value.x, value.y, value.z);
+fn record(values: &[f32], flag: Option<bool>) -> String {
+    let mut line = String::new();
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            line.push(' ');
+        }
+        let _ = write!(line, "{:.4}", value);
+    }
+    if let Some(flag) = flag {
+        line.push(' ');
+        line.push_str(if flag { "true" } else { "false" });
+    }
+    line.push('\n');
+    line
 }
 
 pub fn encode_snapshot(snapshot: &Snapshot) -> String {
-    let mut text = String::new();
-    text.push_str("NEON_FRONTIER_SAVE_V1\n");
-    write_vec3(&mut text, snapshot.player);
-    write_vec3(&mut text, snapshot.car);
-    let _ = writeln!(text, "{:.4} {:.4}", snapshot.yaw, snapshot.speed);
-    let _ = writeln!(text, "{}", snapshot.stage);
-    let _ = writeln!(text, "{}", snapshot.credits);
-    let _ = writeln!(text, "{}", snapshot.driving);
-    let _ = writeln!(text, "{}", snapshot.bloom);
+    let mut text = String::from("NEON_FRONTIER_SAVE_V1\n");
+    let player = [snapshot.player.x, snapshot.player.y, snapshot.player.z];
+    text.push_str(&record(&player, None));
+    let car = [snapshot.car.x, snapshot.car.y, snapshot.car.z];
+    text.push_str(&record(&car, None));
+    let motion = [snapshot.yaw, snapshot.speed];
+    text.push_str(&record(&motion, None));
+    text.push_str(&format!("{}\n", snapshot.stage));
+    text.push_str(&format!("{}\n", snapshot.credits));
+    text.push_str(&format!("{}\n", snapshot.driving));
+    text.push_str(&format!("{}\n", snapshot.bloom));
     let world = &snapshot.world;
-    let _ = writeln!(
-        text,
-        "{:.4} {} {:.4}",
-        world.health, world.wanted_level, world.wanted_timer
-    );
-    let _ = writeln!(text, "{}", world.traffic.len());
+    let status = [world.health, world.wanted_level as f32, world.wanted_timer];
+    text.push_str(&record(&status, None));
+    text.push_str(&format!("{}\n", world.traffic.len()));
     for car in &world.traffic {
-        let _ = writeln!(
-            text,
-            "{:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {}",
+        let values = [
             car.position.x,
             car.position.y,
             car.position.z,
@@ -51,14 +60,12 @@ pub fn encode_snapshot(snapshot: &Snapshot) -> String {
             car.direction,
             car.lane_offset,
             car.stop_timer,
-            car.along_x
-        );
+        ];
+        text.push_str(&record(&values, Some(car.along_x)));
     }
-    let _ = writeln!(text, "{}", world.citizens.len());
+    text.push_str(&format!("{}\n", world.citizens.len()));
     for citizen in &world.citizens {
-        let _ = writeln!(
-            text,
-            "{:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} {}",
+        let values = [
             citizen.origin.x,
             citizen.origin.y,
             citizen.origin.z,
@@ -70,24 +77,23 @@ pub fn encode_snapshot(snapshot: &Snapshot) -> String {
             citizen.knock_velocity.z,
             citizen.knocked,
             citizen.health,
-            citizen.dead
-        );
+        ];
+        text.push_str(&record(&values, Some(citizen.dead)));
     }
-    let _ = writeln!(text, "{}", world.patrols.len());
+    text.push_str(&format!("{}\n", world.patrols.len()));
     for patrol in &world.patrols {
-        write_vec3(&mut text, patrol.position);
+        let values = [patrol.position.x, patrol.position.y, patrol.position.z];
+        text.push_str(&record(&values, None));
     }
-    let _ = writeln!(text, "{}", world.officers.len());
+    text.push_str(&format!("{}\n", world.officers.len()));
     for officer in &world.officers {
-        let _ = writeln!(
-            text,
-            "{:.4} {:.4} {:.4} {:.4} {}",
+        let values = [
             officer.position.x,
             officer.position.y,
             officer.position.z,
             officer.shot_timer,
-            officer.active
-        );
+        ];
+        text.push_str(&record(&values, Some(officer.active)));
     }
     text
 }
