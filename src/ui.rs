@@ -38,7 +38,7 @@ pub fn compose_hud(
     notice: &str,
 ) -> String {
     let objective = if objective.contains("Маршрут выполнен") {
-        "Маршрут продолжается • следующая точка появится автоматически"
+        ""
     } else {
         objective
     };
@@ -104,7 +104,7 @@ mod tests {
         );
 
         assert!(!hud.contains("Маршрут выполнен"));
-        assert!(hud.contains("Маршрут продолжается"));
+        assert!(!hud.contains("Маршрут продолжается"));
     }
 
     #[test]
