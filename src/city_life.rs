@@ -13,6 +13,16 @@ const CAR_LANE_OFFSET: f32 = 2.1;
 const CAR_PASSING_OFFSET: f32 = CAR_BODY_RADIUS * 2.0 + 0.2;
 const CAR_HIT_DISTANCE: f32 = 3.2;
 const CAR_STOP_SECONDS: f32 = 1.1;
+const OFFICER_BODY_RADIUS: f32 = 0.34;
+const OFFICER_SPEED: f32 = 5.2;
+const OFFICER_STOP_DISTANCE: f32 = 12.0;
+const OFFICER_RETREAT_DISTANCE: f32 = 9.0;
+const POLICE_SHOT_MIN_DISTANCE: f32 = 8.0;
+const POLICE_SHOT_MAX_DISTANCE: f32 = 18.0;
+const POLICE_SHOT_COOLDOWN: f32 = 1.25;
+const POLICE_SHOT_DAMAGE: f32 = 8.0;
+const POLICE_MUZZLE_FLASH_SECONDS: f32 = 0.14;
+const LINE_OF_SIGHT_SAMPLE_SPACING: f32 = 1.0;
 const CITIZEN_BODY_RADIUS: f32 = 0.42;
 const BODY_PUSH: f32 = 1.2;
 const KNOCK_SPEED: f32 = 7.5;
@@ -43,6 +53,19 @@ struct TrafficCar {
 struct PolicePatrol {
     home: Vec2,
     phase: f32,
+}
+
+#[derive(Component)]
+struct FootOfficer {
+    patrol_index: usize,
+    active: bool,
+    shot_timer: f32,
+}
+
+#[derive(Component)]
+struct OfficerMuzzleFlash {
+    patrol_index: usize,
+    remaining: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -91,6 +114,7 @@ pub struct PlayerProbe {
     pub forward: Vec3,
     pub in_vehicle: bool,
     pub punch: bool,
+    pub health: f32,
 }
 
 impl Default for PlayerProbe {
@@ -100,6 +124,7 @@ impl Default for PlayerProbe {
             forward: Vec3::NEG_Z,
             in_vehicle: false,
             punch: false,
+            health: 100.0,
         }
     }
 }
@@ -354,6 +379,28 @@ fn spawn_city_life(
         emissive: LinearRgba::rgb(0.04, 0.35, 3.5),
         ..default()
     });
+    let officer_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.035, 0.12, 0.28),
+        metallic: 0.15,
+        perceptual_roughness: 0.62,
+        ..default()
+    });
+    let officer_skin = materials.add(Color::srgb(0.78, 0.53, 0.36));
+    let officer_gun_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.035, 0.045, 0.055),
+        metallic: 0.62,
+        perceptual_roughness: 0.28,
+        ..default()
+    });
+    let muzzle_flash_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 0.78, 0.18),
+        emissive: LinearRgba::rgb(9.0, 4.2, 0.35),
+        ..default()
+    });
+    let officer_mesh = meshes.add(Cuboid::new(0.56, 1.5, 0.44));
+    let officer_head_mesh = meshes.add(Cuboid::new(0.36, 0.36, 0.36));
+    let officer_gun_mesh = meshes.add(Cuboid::new(0.12, 0.12, 0.48));
+    let muzzle_flash_mesh = meshes.add(Cuboid::new(0.34, 0.34, 0.34));
     let bar_mesh = meshes.add(Cuboid::new(0.45, 0.14, 0.32));
     let badge_mesh = meshes.add(Cuboid::new(0.08, 0.28, 0.68));
     for (index, home) in [Vec2::new(-48.0, -2.0), Vec2::new(48.0, 2.0)]
@@ -385,6 +432,41 @@ fn spawn_city_life(
             MeshMaterial3d(blue_light.clone()),
             Transform::from_translation(center + Vec3::new(0.97, 0.05, 0.0)),
         ));
+        let officer = commands
+            .spawn((
+                Mesh3d(officer_mesh.clone()),
+                MeshMaterial3d(officer_material.clone()),
+                Transform::from_translation(Vec3::new(home.x + 2.8, 0.82, home.y)),
+                Visibility::Hidden,
+                FootOfficer {
+                    patrol_index: index,
+                    active: false,
+                    shot_timer: 0.6 + index as f32 * 0.2,
+                },
+            ))
+            .id();
+        commands.entity(officer).with_children(|parent| {
+            parent.spawn((
+                Mesh3d(officer_head_mesh.clone()),
+                MeshMaterial3d(officer_skin.clone()),
+                Transform::from_translation(Vec3::new(0.0, 0.94, 0.0)),
+            ));
+            parent.spawn((
+                Mesh3d(officer_gun_mesh.clone()),
+                MeshMaterial3d(officer_gun_material.clone()),
+                Transform::from_translation(Vec3::new(0.2, 0.42, 0.35)),
+            ));
+            parent.spawn((
+                Mesh3d(muzzle_flash_mesh.clone()),
+                MeshMaterial3d(muzzle_flash_material.clone()),
+                Transform::from_translation(Vec3::new(0.2, 0.42, 0.72)),
+                Visibility::Hidden,
+                OfficerMuzzleFlash {
+                    patrol_index: index,
+                    remaining: 0.0,
+                },
+            ));
+        });
     }
 
     let landmark_mesh = meshes.add(Cuboid::default());
@@ -538,6 +620,39 @@ fn city_collision(position: Vec2, radius: f32) -> bool {
     })
 }
 
+fn building_contains(position: Vec2) -> bool {
+    (-3_i32..=2).any(|grid_x| {
+        (-3_i32..=2).any(|grid_z| {
+            let center = Vec2::new(
+                grid_x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
+                grid_z as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
+            );
+            (position.x - center.x).abs() < BUILDING_HALF
+                && (position.y - center.y).abs() < BUILDING_HALF
+        })
+    })
+}
+
+fn police_line_of_sight_clear(start: Vec2, end: Vec2) -> bool {
+    let distance = start.distance(end);
+    let sample_count = (distance / LINE_OF_SIGHT_SAMPLE_SPACING).ceil().max(1.0) as usize;
+    (0..=sample_count).all(|sample| {
+        let point = start.lerp(end, sample as f32 / sample_count as f32);
+        !building_contains(point)
+    })
+}
+
+fn can_police_shoot(distance: f32, line_of_sight_clear: bool) -> bool {
+    line_of_sight_clear
+        && (POLICE_SHOT_MIN_DISTANCE..=POLICE_SHOT_MAX_DISTANCE).contains(&distance)
+}
+
+fn damage_player(probe: &mut PlayerProbe, damage: f32) {
+    if damage > 0.0 {
+        probe.health = (probe.health - damage).max(0.0);
+    }
+}
+
 fn traffic_obstacle_ahead(
     baseline: Vec2,
     forward: Vec2,
@@ -588,13 +703,24 @@ fn simulate_city_life(
     mut wanted: ResMut<WantedState>,
     mut traffic: Query<
         (&mut Transform, &mut TrafficCar),
-        (Without<Citizen>, Without<PolicePatrol>),
+        (Without<Citizen>, Without<PolicePatrol>, Without<FootOfficer>),
     >,
     mut citizens: Query<
         (&mut Transform, &mut Citizen),
-        (Without<TrafficCar>, Without<PolicePatrol>),
+        (Without<TrafficCar>, Without<PolicePatrol>, Without<FootOfficer>),
     >,
-    mut patrols: Query<(&mut Transform, &PolicePatrol), (Without<TrafficCar>, Without<Citizen>)>,
+    mut patrols: Query<
+        (&mut Transform, &PolicePatrol),
+        (Without<TrafficCar>, Without<Citizen>, Without<FootOfficer>),
+    >,
+    mut officers: Query<
+        (&mut Transform, &mut FootOfficer, &mut Visibility),
+        (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>),
+    >,
+    mut muzzle_flashes: Query<
+        (&mut Visibility, &mut OfficerMuzzleFlash),
+        (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>, Without<FootOfficer>),
+    >,
 ) {
     let dt = time.delta_secs().min(0.05);
     if dt <= 0.0 {
@@ -817,13 +943,17 @@ fn simulate_city_life(
             None
         };
         let target = if let Some(tactics) = tactics {
-            let to_player = player_flat - position;
-            let side = Vec2::new(-to_player.y, to_player.x).normalize_or_zero();
-            let flank_side = if index % 2 == 0 { 1.0 } else { -1.0 };
-            let search_phase = now * (0.45 + wanted.level as f32 * 0.08) + patrol.phase;
-            let search_offset =
-                Vec2::new(search_phase.cos(), search_phase.sin()) * tactics.search_radius;
-            player_flat + side * (tactics.flank_distance * flank_side) + search_offset
+            if wanted.level >= 2 {
+                player_flat
+            } else {
+                let to_player = player_flat - position;
+                let side = Vec2::new(-to_player.y, to_player.x).normalize_or_zero();
+                let flank_side = if index % 2 == 0 { 1.0 } else { -1.0 };
+                let search_phase = now * (0.45 + wanted.level as f32 * 0.08) + patrol.phase;
+                let search_offset =
+                    Vec2::new(search_phase.cos(), search_phase.sin()) * tactics.search_radius;
+                player_flat + side * (tactics.flank_distance * flank_side) + search_offset
+            }
         } else {
             patrol.home
                 + Vec2::new(
@@ -833,7 +963,11 @@ fn simulate_city_life(
         };
         let delta = target - position;
         let distance = delta.length();
-        let stop_distance = tactics.map_or(5.5, |tactics| tactics.stop_distance);
+        let stop_distance = if wanted.level >= 2 {
+            9.0
+        } else {
+            tactics.map_or(5.5, |tactics| tactics.stop_distance)
+        };
         if distance > stop_distance {
             let speed = tactics.map_or(2.4, |tactics| tactics.speed);
             let movement = delta.normalize() * (speed * dt).min(distance - stop_distance);
@@ -866,6 +1000,94 @@ fn simulate_city_life(
             Vec2::new(transform.translation.x, transform.translation.z),
             CAR_BODY_RADIUS + 0.25,
         ));
+    }
+
+    let updated_patrol_positions: Vec<Vec2> = patrols
+        .iter()
+        .map(|(transform, _)| Vec2::new(transform.translation.x, transform.translation.z))
+        .collect();
+    let mut shots_fired = Vec::new();
+    for (mut transform, mut officer, mut visibility) in &mut officers {
+        if wanted.level < 2 {
+            officer.active = false;
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+        if !officer.active {
+            let patrol_position = updated_patrol_positions
+                .get(officer.patrol_index)
+                .copied()
+                .unwrap_or(player_flat);
+            let side = if officer.patrol_index % 2 == 0 {
+                Vec2::X
+            } else {
+                -Vec2::X
+            };
+            transform.translation = Vec3::new(
+                patrol_position.x + side.x * (CAR_BODY_RADIUS + OFFICER_BODY_RADIUS + 0.35),
+                0.82,
+                patrol_position.y + side.y * (CAR_BODY_RADIUS + OFFICER_BODY_RADIUS + 0.35),
+            );
+            officer.active = true;
+        }
+        *visibility = Visibility::Visible;
+
+        let position = Vec2::new(transform.translation.x, transform.translation.z);
+        let to_player = player_flat - position;
+        let distance = to_player.length();
+        let movement = if distance > OFFICER_STOP_DISTANCE {
+            to_player.normalize() * (OFFICER_SPEED * dt).min(distance - OFFICER_STOP_DISTANCE)
+        } else if distance < OFFICER_RETREAT_DISTANCE {
+            -to_player.normalize() * (OFFICER_SPEED * dt).min(OFFICER_RETREAT_DISTANCE - distance)
+        } else {
+            Vec2::ZERO
+        };
+        let mut next = position;
+        if movement.length_squared() > 0.0 {
+            let mut blockers: Vec<Vec2> = car_positions
+                .iter()
+                .map(|car| Vec2::new(car.x, car.z))
+                .collect();
+            blockers.extend(updated_patrol_positions.iter().copied());
+            next = crate::physics::move_with_slide(position, movement, |point| {
+                city_collision(point, OFFICER_BODY_RADIUS)
+                    || point.distance(player_flat) < OFFICER_BODY_RADIUS + player_radius
+                    || blockers
+                        .iter()
+                        .any(|center| {
+                            center.distance(point) < CAR_BODY_RADIUS + OFFICER_BODY_RADIUS
+                        })
+            });
+        }
+        transform.translation.x = next.x;
+        transform.translation.z = next.y;
+        let facing = player_flat - next;
+        if facing.length_squared() > 1.0e-5 {
+            transform.rotation = Quat::from_rotation_y(facing.x.atan2(facing.y));
+        }
+
+        officer.shot_timer = (officer.shot_timer - dt).max(0.0);
+        let officer_distance = next.distance(player_flat);
+        let clear_line = police_line_of_sight_clear(next, player_flat);
+        if officer.shot_timer <= 0.0 && can_police_shoot(officer_distance, clear_line) {
+            damage_player(&mut probe, POLICE_SHOT_DAMAGE);
+            officer.shot_timer = POLICE_SHOT_COOLDOWN;
+            shots_fired.push(officer.patrol_index);
+        }
+    }
+    for (mut visibility, mut flash) in &mut muzzle_flashes {
+        if wanted.level < 2 {
+            flash.remaining = 0.0;
+        } else if shots_fired.contains(&flash.patrol_index) {
+            flash.remaining = POLICE_MUZZLE_FLASH_SECONDS;
+        } else {
+            flash.remaining = (flash.remaining - dt).max(0.0);
+        }
+        *visibility = if flash.remaining > 0.0 {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
     bodies.cars = car_bodies;
     probe.punch = false;
@@ -999,6 +1221,35 @@ mod tests {
         assert!(person.dead);
         assert!(!damage_citizen(&mut person, 1.0));
         assert_eq!(person.health, 0.0);
+    }
+
+    #[test]
+    fn player_health_starts_full_and_never_drops_below_zero() {
+        let mut probe = PlayerProbe::default();
+        assert_eq!(probe.health, 100.0);
+        damage_player(&mut probe, 120.0);
+        assert_eq!(probe.health, 0.0);
+    }
+
+    #[test]
+    fn building_blocks_police_line_of_sight() {
+        assert!(!police_line_of_sight_clear(
+            Vec2::new(0.0, 24.0),
+            Vec2::new(48.0, 24.0),
+        ));
+        assert!(police_line_of_sight_clear(
+            Vec2::new(0.0, 0.0),
+            Vec2::new(0.0, 20.0),
+        ));
+    }
+
+    #[test]
+    fn police_shooting_requires_clear_sight_and_valid_distance() {
+        assert!(!can_police_shoot(7.9, true));
+        assert!(can_police_shoot(POLICE_SHOT_MIN_DISTANCE, true));
+        assert!(can_police_shoot(POLICE_SHOT_MAX_DISTANCE, true));
+        assert!(!can_police_shoot(18.1, true));
+        assert!(!can_police_shoot(12.0, false));
     }
 
     #[test]
