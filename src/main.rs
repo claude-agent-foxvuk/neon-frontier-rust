@@ -15,6 +15,7 @@ const ROAD_SPACING: f32 = 48.0;
 const BUILDING_HALF: f32 = 14.0;
 const SAVE_FILE: &str = "neon_frontier_save.txt";
 const MOUSE_SENSITIVITY: f32 = 0.0035;
+const MAIN_MENU_TEXT: &str = "NEON FRONTIER\n\nOPEN-WORLD ACTION • WINDOWS 11\n\nНажми Enter или ЛКМ, чтобы начать\nWASD — движение / газ • Shift — бег\nE — сесть в машину / выйти\nB — Bloom • F5 — сохранить • F9 — загрузить\n\nСделано FoxVuk и Claude Opus 5.5";
 
 #[derive(Component)]
 struct PlayerVisual;
@@ -37,6 +38,7 @@ struct Game {
     car: Vec3,
     yaw: f32,
     speed: f32,
+    started: bool,
     driving: bool,
     paused: bool,
     bloom: bool,
@@ -58,6 +60,7 @@ impl Default for Game {
             car: Vec3::new(0.0, 0.65, 6.0),
             yaw: 0.0,
             speed: 0.0,
+            started: false,
             driving: false,
             paused: false,
             bloom: true,
@@ -368,6 +371,20 @@ fn controls(
     time: Res<Time>,
     mut game: ResMut<Game>,
 ) {
+    if !game.started {
+        if keys.just_pressed(KeyCode::Enter) || mouse_buttons.just_pressed(MouseButton::Left) {
+            game.started = true;
+            game.mouse_captured = mouse_buttons.just_pressed(MouseButton::Left);
+        }
+        cursor_options.visible = !game.mouse_captured;
+        cursor_options.grab_mode = if game.mouse_captured {
+            CursorGrabMode::Locked
+        } else {
+            CursorGrabMode::None
+        };
+        return;
+    }
+
     if keys.just_pressed(KeyCode::Escape) {
         game.paused = !game.paused;
         game.mouse_captured = !game.paused;
@@ -575,6 +592,12 @@ fn update_world(
 }
 
 fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<Hud>>) {
+    if !game.started {
+        for mut text in &mut labels {
+            text.0 = MAIN_MENU_TEXT.to_string();
+        }
+        return;
+    }
     let position = if game.driving { game.car } else { game.player };
     let objective = if game.stage < OBJECTIVES.len() {
         let target = OBJECTIVES[game.stage];
@@ -627,6 +650,12 @@ fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<Hud>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn main_menu_shows_start_instructions_and_requested_credit() {
+        assert!(MAIN_MENU_TEXT.contains("Нажми Enter"));
+        assert!(MAIN_MENU_TEXT.contains("Сделано FoxVuk и Claude Opus 5.5"));
+    }
 
     #[test]
     fn building_collision_and_clear_road() {
