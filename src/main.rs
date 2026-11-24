@@ -528,6 +528,17 @@ fn snapshot_from_game(game: &Game) -> save::Snapshot {
         car: game.car,
         yaw: game.yaw,
         speed: game.speed,
+        steering: game.steering,
+        lateral_speed: game.lateral_speed,
+        player_facing_yaw: game.player_facing_yaw,
+        player_moving: game.player_moving,
+        player_running: game.player_running,
+        player_vertical_speed: game.player_vertical_speed,
+        player_grounded: game.player_grounded,
+        punch_cooldown: game.punch_cooldown,
+        camera_yaw: game.camera_yaw,
+        camera_orbit: game.camera_orbit,
+        camera_pitch: game.camera_pitch,
         stage: game.stage,
         credits: game.credits,
         driving: game.driving,
@@ -554,9 +565,6 @@ fn load_game(
         snapshot.stage
     };
     if stage > OBJECTIVES.len()
-        || !(-8.0..=24.0).contains(&snapshot.speed)
-        || !snapshot.player.is_finite()
-        || !snapshot.car.is_finite()
         || collides(
             Vec2::new(snapshot.player.x, snapshot.player.z),
             PLAYER_BODY_RADIUS,
@@ -573,22 +581,38 @@ fn load_game(
             "Save position or progress is outside the supported game state",
         ));
     }
-    game.player = Vec3::new(snapshot.player.x, PLAYER_GROUND_Y, snapshot.player.z);
+    game.player = snapshot.player;
     game.car = snapshot.car;
     game.yaw = snapshot.yaw;
     game.speed = snapshot.speed;
-    game.steering = 0.0;
-    game.lateral_speed = 0.0;
-    game.player_moving = false;
-    game.player_vertical_speed = 0.0;
-    game.player_grounded = true;
+    game.steering = snapshot.steering;
+    game.lateral_speed = snapshot.lateral_speed;
+    game.player_facing_yaw = snapshot.player_facing_yaw;
+    game.player_moving = snapshot.player_moving;
+    game.player_running = snapshot.player_running;
+    game.player_vertical_speed = snapshot.player_vertical_speed;
+    game.player_grounded = snapshot.player_grounded;
+    game.punch_cooldown = snapshot.punch_cooldown;
     game.stage = stage;
     game.credits = snapshot.credits;
     game.driving = snapshot.driving;
+    game.paused = false;
     game.bloom = snapshot.bloom;
+    game.camera_yaw = snapshot.camera_yaw;
+    game.camera_orbit = snapshot.camera_orbit;
+    game.camera_pitch = snapshot.camera_pitch;
+    game.mouse_captured = false;
     game.notice = "Сохранение загружено".to_string();
     game.notice_timer = 3.0;
     probe.health = snapshot.world.health.clamp(0.0, 100.0);
+    probe.position = if game.driving { game.car } else { game.player };
+    probe.in_vehicle = game.driving;
+    probe.vehicle_position = game.car;
+    probe.forward = if game.driving {
+        Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos())
+    } else {
+        walk_direction(0.0, 1.0, game.camera_yaw)
+    };
     restore.0 = Some(snapshot.world.clone());
     Ok(())
 }
