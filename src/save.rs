@@ -134,11 +134,7 @@ fn parse_numbers_and_flag(line: &str, count: usize) -> Option<(Vec<f32>, bool)> 
 
 fn parse_count(line: &str, limit: usize) -> Option<usize> {
     let count = line.parse::<usize>().ok()?;
-    if count <= limit {
-        Some(count)
-    } else {
-        None
-    }
+    if count <= limit { Some(count) } else { None }
 }
 
 const MAX_RECORDS: usize = 4_096;
@@ -189,6 +185,9 @@ fn valid_world(world: &WorldSnapshot) -> bool {
 
 fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
     let status = parse_numbers(lines.next()?, 3)?;
+    if !status[1].is_finite() || !(0.0..=6.0).contains(&status[1]) || status[1].fract() != 0.0 {
+        return None;
+    }
     let traffic_count = parse_count(lines.next()?, MAX_RECORDS)?;
     let mut traffic = Vec::with_capacity(traffic_count);
     for _ in 0..traffic_count {
@@ -235,7 +234,7 @@ fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
     }
     let world = WorldSnapshot {
         health: status[0],
-        wanted_level: status[1].clamp(0.0, 6.0) as u8,
+        wanted_level: status[1] as u8,
         wanted_timer: status[2],
         traffic,
         citizens,
