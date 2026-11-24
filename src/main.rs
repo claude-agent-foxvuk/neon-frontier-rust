@@ -97,15 +97,55 @@ fn setup(
     mut game: ResMut<Game>,
 ) {
     let cube = meshes.add(Cuboid::default());
-    let ground = materials.add(Color::srgb(0.10, 0.14, 0.17));
-    let asphalt = materials.add(Color::srgb(0.09, 0.09, 0.12));
-    let stripe = materials.add(Color::srgb(0.86, 0.67, 0.24));
+    let ground = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.035, 0.10, 0.12),
+        perceptual_roughness: 0.92,
+        ..default()
+    });
+    let asphalt = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.028, 0.045, 0.075),
+        perceptual_roughness: 0.96,
+        ..default()
+    });
+    let stripe = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.92, 0.65, 0.18),
+        emissive: LinearRgba::rgb(0.18, 0.09, 0.02),
+        perceptual_roughness: 0.72,
+        ..default()
+    });
     let buildings = [
-        materials.add(Color::srgb(0.25, 0.31, 0.38)),
-        materials.add(Color::srgb(0.38, 0.31, 0.30)),
-        materials.add(Color::srgb(0.20, 0.34, 0.37)),
-        materials.add(Color::srgb(0.34, 0.30, 0.41)),
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.09, 0.17, 0.28),
+            metallic: 0.18,
+            perceptual_roughness: 0.72,
+            ..default()
+        }),
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.27, 0.15, 0.19),
+            metallic: 0.16,
+            perceptual_roughness: 0.76,
+            ..default()
+        }),
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.06, 0.24, 0.28),
+            metallic: 0.20,
+            perceptual_roughness: 0.68,
+            ..default()
+        }),
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.20, 0.15, 0.32),
+            metallic: 0.18,
+            perceptual_roughness: 0.72,
+            ..default()
+        }),
     ];
+    let building_trim_mesh = meshes.add(Cuboid::new(0.28, 1.0, 0.28));
+    let building_trim_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.12, 0.30, 0.38),
+        metallic: 0.72,
+        perceptual_roughness: 0.28,
+        ..default()
+    });
     let body = materials.add(StandardMaterial {
         base_color: Color::srgb(0.03, 0.48, 0.67),
         metallic: 0.65,
@@ -168,6 +208,20 @@ fn setup(
                     BUILDING_HALF * 2.0,
                 )),
             ));
+            for trim_x in [-1.0, 1.0] {
+                for trim_z in [-1.0, 1.0] {
+                    commands.spawn((
+                        Mesh3d(building_trim_mesh.clone()),
+                        MeshMaterial3d(building_trim_material.clone()),
+                        Transform::from_xyz(
+                            px + trim_x * (BUILDING_HALF - 0.05),
+                            height / 2.0,
+                            pz + trim_z * (BUILDING_HALF - 0.05),
+                        )
+                        .with_scale(Vec3::new(1.0, height, 1.0)),
+                    ));
+                }
+            }
         }
     }
 
@@ -191,7 +245,8 @@ fn setup(
     ));
     commands.spawn((
         DirectionalLight {
-            illuminance: 16_000.0,
+            color: Color::srgb(0.82, 0.89, 1.0),
+            illuminance: 14_000.0,
             shadow_maps_enabled: true,
             ..default()
         },
@@ -202,17 +257,32 @@ fn setup(
         Hdr,
         Tonemapping::TonyMcMapface,
         Bloom::NATURAL,
+        DistanceFog {
+            color: Color::srgb(0.035, 0.06, 0.10),
+            directional_light_color: Color::srgba(0.35, 0.55, 0.80, 0.18),
+            directional_light_exponent: 12.0,
+            falloff: FogFalloff::from_visibility_colors(
+                190.0,
+                Color::srgb(0.04, 0.06, 0.10),
+                Color::srgb(0.10, 0.15, 0.22),
+            ),
+        },
         Transform::from_xyz(0.0, 6.0, 14.0).looking_at(game.player, Vec3::Y),
         FollowCamera,
     ));
     commands.spawn((
         Text::new("NEON FRONTIER"),
+        ui::hud_font(),
+        TextColor(Color::srgb(0.82, 0.94, 1.0)),
         Node {
             position_type: PositionType::Absolute,
             top: px(14),
             left: px(14),
+            width: px(540),
+            padding: UiRect::all(px(16)),
             ..default()
         },
+        BackgroundColor(Color::srgba(0.015, 0.028, 0.055, 0.88)),
         ui::Hud,
     ));
 }
