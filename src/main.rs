@@ -790,6 +790,7 @@ fn controls(
         walk_direction(0.0, 1.0, game.camera_yaw)
     };
     probe.in_vehicle = game.driving;
+    probe.vehicle_position = game.car;
 }
 
 fn update_world(
