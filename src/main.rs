@@ -60,6 +60,8 @@ struct Game {
     driving: bool,
     paused: bool,
     bloom: bool,
+    menu_index: usize,
+    credits_screen: bool,
     stage: usize,
     credits: u32,
     buildings: Vec<Vec2>,
@@ -90,6 +92,8 @@ impl Default for Game {
             driving: false,
             paused: false,
             bloom: true,
+            menu_index: 0,
+            credits_screen: false,
             stage: 0,
             credits: 0,
             buildings: Vec::new(),
@@ -101,6 +105,13 @@ impl Default for Game {
             mouse_captured: false,
         }
     }
+}
+
+fn reset_run(game: &mut Game) {
+    let buildings = std::mem::take(&mut game.buildings);
+    *game = Game::default();
+    game.buildings = buildings;
+    game.started = true;
 }
 
 const OBJECTIVES: [Vec3; 3] = [
@@ -521,14 +532,21 @@ fn snapshot_from_game(game: &Game) -> save::Snapshot {
         credits: game.credits,
         driving: game.driving,
         bloom: game.bloom,
+        world: city_life::WorldSnapshot::default(),
     }
 }
 
-fn save_game(game: &Game) -> io::Result<()> {
-    save::save_snapshot(snapshot_from_game(game))
+fn save_game(game: &Game, world: &city_life::WorldSnapshot) -> io::Result<()> {
+    let mut snapshot = snapshot_from_game(game);
+    snapshot.world = world.clone();
+    save::save_snapshot(&snapshot)
 }
 
-fn load_game(game: &mut Game) -> io::Result<()> {
+fn load_game(
+    game: &mut Game,
+    probe: &mut city_life::PlayerProbe,
+    restore: &mut city_life::WorldRestore,
+) -> io::Result<()> {
     let snapshot = save::load_snapshot()?;
     let stage = if snapshot.stage == OBJECTIVES.len() {
         0
@@ -537,6 +555,8 @@ fn load_game(game: &mut Game) -> io::Result<()> {
     };
     if stage > OBJECTIVES.len()
         || !(-8.0..=24.0).contains(&snapshot.speed)
+        || !snapshot.player.is_finite()
+        || !snapshot.car.is_finite()
         || collides(
             Vec2::new(snapshot.player.x, snapshot.player.z),
             PLAYER_BODY_RADIUS,
@@ -566,6 +586,10 @@ fn load_game(game: &mut Game) -> io::Result<()> {
     game.credits = snapshot.credits;
     game.driving = snapshot.driving;
     game.bloom = snapshot.bloom;
+    game.notice = "Сохранение загружено".to_string();
+    game.notice_timer = 3.0;
+    probe.health = snapshot.world.health.clamp(0.0, 100.0);
+    restore.0 = Some(snapshot.world.clone());
     Ok(())
 }
 
@@ -576,20 +600,44 @@ fn controls(
     mut cursor_options: Single<&mut CursorOptions>,
     time: Res<Time>,
     traffic: Res<city_life::TrafficBodies>,
+    world: Res<city_life::WorldState>,
     mut probe: ResMut<city_life::PlayerProbe>,
+    mut restore: ResMut<city_life::WorldRestore>,
     mut game: ResMut<Game>,
 ) {
     if !game.started {
-        if keys.just_pressed(KeyCode::Enter) || mouse_buttons.just_pressed(MouseButton::Left) {
-            game.started = true;
-            game.mouse_captured = mouse_buttons.just_pressed(MouseButton::Left);
-        }
-        cursor_options.visible = !game.mouse_captured;
-        cursor_options.grab_mode = if game.mouse_captured {
-            CursorGrabMode::Locked
+        let options = ui::MENU_OPTIONS.len();
+        let selected = game.menu_index.min(options - 1);
+        if game.credits_screen {
+            if keys.just_pressed(KeyCode::Escape)
+                || keys.just_pressed(KeyCode::Enter)
+                || keys.just_pressed(KeyCode::Space)
+            {
+                game.credits_screen = false;
+            }
         } else {
-            CursorGrabMode::None
-        };
+            if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS) {
+                game.menu_index = (selected + 1) % options;
+            }
+            if keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW) {
+                game.menu_index = (selected + options - 1) % options;
+            }
+            if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
+                match ui::MENU_OPTIONS[selected] {
+                    ui::MenuOption::NewGame => reset_run(&mut game),
+                    ui::MenuOption::LoadGame => {
+                        if load_game(&mut game, &mut probe, &mut restore).is_ok() {
+                            game.started = true;
+                            game.mouse_captured = false;
+                        }
+                    }
+                    ui::MenuOption::Credits => game.credits_screen = true,
+                }
+            }
+        }
+        game.paused = false;
+        cursor_options.visible = true;
+        cursor_options.grab_mode = CursorGrabMode::None;
         return;
     }
 
@@ -632,7 +680,7 @@ fn controls(
         }
     }
     if keys.just_pressed(KeyCode::F5) {
-        let saved = save_game(&game).is_ok();
+        let saved = save_game(&game, &world.snapshot).is_ok();
         game.notice = if saved {
             format!("Сохранение записано: {}", save::SAVE_FILE_NAME)
         } else {
@@ -641,13 +689,11 @@ fn controls(
         game.notice_timer = 3.0;
     }
     if keys.just_pressed(KeyCode::F9) {
-        let loaded = load_game(&mut game).is_ok();
-        game.notice = if loaded {
-            "Сохранение загружено".to_string()
-        } else {
-            format!("Не удалось загрузить {}", save::SAVE_FILE_NAME)
-        };
-        game.notice_timer = 3.0;
+        let loaded = load_game(&mut game, &mut probe, &mut restore).is_ok();
+        if !loaded {
+            game.notice = format!("Не удалось загрузить {}", save::SAVE_FILE_NAME);
+            game.notice_timer = 3.0;
+        }
     }
     if game.paused {
         game.player_moving = false;
@@ -913,8 +959,9 @@ fn update_hud(
     mut labels: Query<&mut Text, With<ui::Hud>>,
 ) {
     if !game.started {
+        let menu = ui::main_menu_text(game.menu_index, game.credits_screen, &game.notice);
         for mut text in &mut labels {
-            text.0 = ui::MAIN_MENU_TEXT.to_string();
+            text.0 = menu.clone();
         }
         return;
     }
@@ -1101,5 +1148,16 @@ mod tests {
         assert!(backward.abs() < 1.0e-5);
         assert!((right - std::f32::consts::FRAC_PI_2).abs() < 1.0e-5);
         assert_eq!(facing_yaw(Vec3::ZERO), None);
+    }
+
+    #[test]
+    fn new_game_keeps_the_building_list_and_starts_playing() {
+        let mut game = Game::default();
+        game.buildings.push(Vec2::new(24.0, 24.0));
+        reset_run(&mut game);
+        assert!(game.started);
+        assert_eq!(game.buildings.len(), 1);
+        assert_eq!(game.credits, 0);
+        assert_eq!(game.stage, 0);
     }
 }
