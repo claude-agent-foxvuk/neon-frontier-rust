@@ -1,4 +1,6 @@
 mod city_life;
+mod physics;
+mod procedural;
 mod save;
 mod ui;
 
@@ -109,16 +111,22 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     mut game: ResMut<Game>,
 ) {
     let cube = meshes.add(Cuboid::default());
+    let surfaces = procedural::add_surface_textures(&mut images);
     let ground = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.035, 0.10, 0.12),
-        perceptual_roughness: 0.92,
+        base_color: Color::srgb(0.78, 0.86, 0.82),
+        base_color_texture: Some(surfaces.ground.clone()),
+        uv_transform: bevy::math::Affine2::from_scale(Vec2::splat(240.0)),
+        perceptual_roughness: 0.98,
         ..default()
     });
     let asphalt = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.028, 0.045, 0.075),
+        base_color: Color::srgb(0.82, 0.88, 0.96),
+        base_color_texture: Some(surfaces.asphalt.clone()),
+        uv_transform: bevy::math::Affine2::from_scale(Vec2::new(15.0, 300.0)),
         perceptual_roughness: 0.96,
         ..default()
     });
@@ -129,7 +137,9 @@ fn setup(
         ..default()
     });
     let sidewalk = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.24, 0.31, 0.36),
+        base_color: Color::srgb(0.88, 0.92, 0.94),
+        base_color_texture: Some(surfaces.pavement.clone()),
+        uv_transform: bevy::math::Affine2::from_scale(Vec2::new(32.0, 5.0)),
         metallic: 0.08,
         perceptual_roughness: 0.88,
         ..default()
@@ -145,32 +155,25 @@ fn setup(
         perceptual_roughness: 0.82,
         ..default()
     });
-    let buildings = [
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.09, 0.17, 0.28),
-            metallic: 0.18,
-            perceptual_roughness: 0.72,
-            ..default()
-        }),
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.27, 0.15, 0.19),
-            metallic: 0.16,
-            perceptual_roughness: 0.76,
-            ..default()
-        }),
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.06, 0.24, 0.28),
-            metallic: 0.20,
-            perceptual_roughness: 0.68,
-            ..default()
-        }),
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.20, 0.15, 0.32),
-            metallic: 0.18,
-            perceptual_roughness: 0.72,
-            ..default()
-        }),
+    let building_colors = [
+        Color::srgb(0.86, 0.90, 0.94),
+        Color::srgb(0.94, 0.78, 0.82),
+        Color::srgb(0.76, 0.92, 0.94),
+        Color::srgb(0.88, 0.82, 0.96),
     ];
+    let buildings: Vec<_> = building_colors
+        .into_iter()
+        .map(|color| {
+            materials.add(StandardMaterial {
+                base_color: color,
+                base_color_texture: Some(surfaces.facade.clone()),
+                uv_transform: bevy::math::Affine2::from_scale(Vec2::splat(4.0)),
+                metallic: 0.08,
+                perceptual_roughness: 0.82,
+                ..default()
+            })
+        })
+        .collect();
     let building_trim_mesh = meshes.add(Cuboid::new(0.28, 1.0, 0.28));
     let building_trim_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.12, 0.30, 0.38),
@@ -196,7 +199,6 @@ fn setup(
         MeshMaterial3d(ground),
         Transform::from_xyz(0.0, -0.25, 0.0).with_scale(Vec3::new(340.0, 0.5, 340.0)),
     ));
-
     for n in -3..=3 {
         let c = n as f32 * ROAD_SPACING;
         commands.spawn((
@@ -542,8 +544,7 @@ fn controls(
         } else {
             game.camera_yaw -= mouse_delta.x * MOUSE_SENSITIVITY;
         }
-        game.camera_pitch =
-            (game.camera_pitch - mouse_delta.y * MOUSE_SENSITIVITY).clamp(0.12, 1.05);
+        game.camera_pitch = (game.camera_pitch - mouse_delta.y * MOUSE_SENSITIVITY).clamp(0.12, 1.05);
     }
 
     if keys.just_pressed(KeyCode::KeyB) {
@@ -588,13 +589,15 @@ fn controls(
         if game.driving {
             if game.speed.abs() < 2.0 {
                 let side = Vec3::new(game.yaw.cos(), 0.0, -game.yaw.sin()) * 3.0;
-                let exit = game.car + side;
-                if !collides(
-                    Vec2::new(exit.x, exit.z),
-                    PLAYER_BODY_RADIUS,
-                    &game.buildings,
-                ) && !blocked_by_traffic(&traffic.cars, exit, PLAYER_BODY_RADIUS)
-                {
+                let candidates = [game.car + side, game.car - side];
+                if let Some(exit) = candidates.into_iter().find(|exit| {
+                    !collides(
+                        Vec2::new(exit.x, exit.z),
+                        PLAYER_BODY_RADIUS,
+                        &game.buildings,
+                    ) && !blocked_by_traffic(&traffic.cars, *exit, PLAYER_BODY_RADIUS)
+                        && !blocked_by_parked_car(*exit, game.car, PLAYER_BODY_RADIUS)
+                }) {
                     game.player = Vec3::new(exit.x, PLAYER_GROUND_Y, exit.z);
                     game.camera_yaw = game.yaw + std::f32::consts::PI + game.camera_orbit;
                     game.driving = false;
@@ -610,6 +613,7 @@ fn controls(
             game.player_grounded = true;
         }
     }
+
     if game.driving {
         let throttle =
             (keys.pressed(KeyCode::KeyW) as i32 - keys.pressed(KeyCode::KeyS) as i32) as f32;
@@ -620,17 +624,21 @@ fn controls(
         let speed_factor = (game.speed / 8.0).clamp(-1.0, 1.0);
         game.yaw += steer * speed_factor * 1.8 * dt;
         let direction = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
-        let next = game.car + direction * game.speed * dt;
-        if collides(
-            Vec2::new(next.x, next.z),
-            PLAYER_CAR_RADIUS,
-            &game.buildings,
-        ) || blocked_by_traffic(&traffic.cars, next, PLAYER_CAR_RADIUS)
-        {
-            game.speed = 0.0;
-        } else {
-            game.car = next;
+        let intended = Vec2::new(direction.x, direction.z) * game.speed * dt;
+        let start = Vec2::new(game.car.x, game.car.z);
+        let mut blockers = traffic.cars.clone();
+        let separated = physics::separate_from_circles(start, PLAYER_CAR_RADIUS, &blockers);
+        let moved = physics::move_with_slide(separated, intended, |point| {
+            collides(point, PLAYER_CAR_RADIUS, &game.buildings)
+                || blockers.iter().any(|(center, radius)| {
+                    center.distance(point) < radius + PLAYER_CAR_RADIUS
+                })
+        });
+        if moved.distance(start) + 0.02 < intended.length() {
+            game.speed *= 0.28;
         }
+        game.car.x = moved.x;
+        game.car.z = moved.y;
         game.player = game.car;
     } else {
         let horizontal =
@@ -643,16 +651,19 @@ fn controls(
         } else {
             PLAYER_WALK_SPEED
         };
-        let next = game.player + direction * run * dt;
-        if !collides(
-            Vec2::new(next.x, next.z),
-            PLAYER_BODY_RADIUS,
-            &game.buildings,
-        ) && !blocked_by_traffic(&traffic.cars, next, PLAYER_BODY_RADIUS)
-            && !blocked_by_parked_car(next, game.car, PLAYER_BODY_RADIUS)
-        {
-            game.player = next;
-        }
+        let mut blockers = traffic.cars.clone();
+        blockers.push((Vec2::new(game.car.x, game.car.z), PLAYER_CAR_RADIUS));
+        let start = Vec2::new(game.player.x, game.player.z);
+        let separated = physics::separate_from_circles(start, PLAYER_BODY_RADIUS, &blockers);
+        let delta = Vec2::new(direction.x, direction.z) * run * dt;
+        let moved = physics::move_with_slide(separated, delta, |point| {
+            collides(point, PLAYER_BODY_RADIUS, &game.buildings)
+                || blockers.iter().any(|(center, radius)| {
+                    center.distance(point) < radius + PLAYER_BODY_RADIUS
+                })
+        });
+        game.player.x = moved.x;
+        game.player.z = moved.y;
         let (y, vertical_speed, grounded) = integrate_jump(
             game.player.y,
             game.player_vertical_speed,
