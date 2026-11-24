@@ -25,6 +25,7 @@ const FALL_TILT: f32 = 0.55;
 const CITIZEN_HEALTH: f32 = 3.0;
 const WANTED_DECAY_START: f32 = 18.0;
 const WANTED_DECAY_STEP: f32 = 8.0;
+pub const WANTED_LEVEL_MAX: u8 = 6;
 
 #[derive(Component)]
 struct TrafficCar {
@@ -86,7 +87,7 @@ pub struct WantedState {
 
 impl WantedState {
     fn report_incident(&mut self) {
-        self.level = (self.level + 1).min(5);
+        self.level = (self.level + 1).min(WANTED_LEVEL_MAX);
         self.decay_timer = WANTED_DECAY_START;
     }
 
@@ -214,22 +215,10 @@ fn spawn_city_life(
         materials.add(Color::srgb(0.49, 0.39, 0.73)),
     ];
     let beacon_materials: Vec<_> = [
-        (
-            Color::srgb(0.05, 0.55, 0.72),
-            LinearRgba::rgb(0.0, 2.2, 4.0),
-        ),
-        (
-            Color::srgb(0.72, 0.36, 0.08),
-            LinearRgba::rgb(4.0, 1.4, 0.1),
-        ),
-        (
-            Color::srgb(0.58, 0.16, 0.62),
-            LinearRgba::rgb(2.8, 0.2, 3.5),
-        ),
-        (
-            Color::srgb(0.18, 0.58, 0.32),
-            LinearRgba::rgb(0.2, 3.2, 0.6),
-        ),
+        (Color::srgb(0.05, 0.55, 0.72), LinearRgba::rgb(0.0, 2.2, 4.0)),
+        (Color::srgb(0.72, 0.36, 0.08), LinearRgba::rgb(4.0, 1.4, 0.1)),
+        (Color::srgb(0.58, 0.16, 0.62), LinearRgba::rgb(2.8, 0.2, 3.5)),
+        (Color::srgb(0.18, 0.58, 0.32), LinearRgba::rgb(0.2, 3.2, 0.6)),
     ]
     .into_iter()
     .map(|(base_color, emissive)| {
@@ -263,8 +252,7 @@ fn spawn_city_life(
         commands.spawn((
             Mesh3d(car_mesh.clone()),
             MeshMaterial3d(car_materials[(road + 1) % car_materials.len()].clone()),
-            Transform::from_translation(along_z)
-                .with_rotation(traffic_rotation(false, direction_z)),
+            Transform::from_translation(along_z).with_rotation(traffic_rotation(false, direction_z)),
             TrafficCar {
                 speed: 6.6 + (road % 2) as f32 * 1.4,
                 direction: direction_z,
@@ -396,16 +384,12 @@ fn spawn_city_life(
         commands.spawn((
             Mesh3d(lamp_arm_mesh.clone()),
             MeshMaterial3d(lamp_post_material.clone()),
-            Transform::from_translation(
-                position + Vec3::Y * 6.0 + Vec3::new(-side_x * 0.42, 0.0, 0.0),
-            ),
+            Transform::from_translation(position + Vec3::Y * 6.0 + Vec3::new(-side_x * 0.42, 0.0, 0.0)),
         ));
         commands.spawn((
             Mesh3d(lamp_head_mesh.clone()),
             MeshMaterial3d(bulb),
-            Transform::from_translation(
-                position + Vec3::Y * 5.95 + Vec3::new(-side_x * 0.95, 0.0, 0.0),
-            ),
+            Transform::from_translation(position + Vec3::Y * 5.95 + Vec3::new(-side_x * 0.95, 0.0, 0.0)),
         ));
     }
     for (index, position) in intersection_light_positions().into_iter().enumerate() {
@@ -486,6 +470,23 @@ fn damage_citizen(citizen: &mut Citizen, damage: f32) -> bool {
     false
 }
 
+fn city_collision(position: Vec2, radius: f32) -> bool {
+    if position.x.abs() + radius > CITY_LIMIT || position.y.abs() + radius > CITY_LIMIT {
+        return true;
+    }
+    (-3_i32..=2).any(|grid_x| {
+        (-3_i32..=2).any(|grid_z| {
+            let center = Vec2::new(
+                grid_x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
+                grid_z as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
+            );
+            let dx = ((position.x - center.x).abs() - BUILDING_HALF).max(0.0);
+            let dz = ((position.y - center.y).abs() - BUILDING_HALF).max(0.0);
+            dx * dx + dz * dz < radius * radius
+        })
+    })
+}
+
 fn simulate_city_life(
     time: Res<Time>,
     mut probe: ResMut<PlayerProbe>,
@@ -507,6 +508,8 @@ fn simulate_city_life(
     }
     let now = time.elapsed_secs();
     let player = probe.position;
+    let player_flat = Vec2::new(player.x, player.z);
+    let player_radius = if probe.in_vehicle { CAR_BODY_RADIUS } else { 0.5 };
     let punching = probe.punch;
     let player_forward = if probe.forward.length_squared() > 1.0e-6 {
         probe.forward.normalize()
@@ -514,7 +517,7 @@ fn simulate_city_life(
         Vec3::NEG_Z
     };
     let mut player_incident = false;
-    let car_positions: Vec<Vec3> = traffic
+    let mut car_positions: Vec<Vec3> = traffic
         .iter()
         .map(|(transform, _)| transform.translation)
         .collect();
@@ -528,7 +531,8 @@ fn simulate_city_life(
     for (index, (mut transform, mut car)) in traffic.iter_mut().enumerate() {
         car.stop_timer = (car.stop_timer - dt).max(0.0);
         let forward = (if car.along_x { Vec3::X } else { Vec3::Z }) * car.direction;
-        let blocked = car_positions.iter().enumerate().any(|(other, position)| {
+        let current = Vec2::new(transform.translation.x, transform.translation.z);
+        let blocked_ahead = car_positions.iter().enumerate().any(|(other, position)| {
             if other == index {
                 return false;
             }
@@ -537,25 +541,34 @@ fn simulate_city_life(
             let sideways = Vec2::new(to_other.x, to_other.z).length();
             ahead > 0.0 && ahead < CAR_BRAKE_DISTANCE && sideways < CAR_LANE_GAP
         });
-        if blocked {
+        if blocked_ahead {
             car.stop_timer = CAR_STOP_SECONDS;
         }
         if car.stop_timer <= 0.0 {
-            if car.along_x {
-                transform.translation.x += car.speed * car.direction * dt;
-                if transform.translation.x > CITY_LIMIT {
-                    transform.translation.x = -CITY_LIMIT;
-                } else if transform.translation.x < -CITY_LIMIT {
-                    transform.translation.x = CITY_LIMIT;
-                }
-            } else {
-                transform.translation.z += car.speed * car.direction * dt;
-                if transform.translation.z > CITY_LIMIT {
-                    transform.translation.z = -CITY_LIMIT;
-                } else if transform.translation.z < -CITY_LIMIT {
-                    transform.translation.z = CITY_LIMIT;
-                }
+            let delta = Vec2::new(forward.x, forward.z) * car.speed * dt;
+            let mut candidate = crate::physics::move_with_slide(current, delta, |point| {
+                city_collision(point, CAR_BODY_RADIUS)
+                    || point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
+                    || car_positions.iter().enumerate().any(|(other, position)| {
+                        if other == index || other < index {
+                            return false;
+                        }
+                        let other_point = Vec2::new(position.x, position.z);
+                        other_point.distance(point) < CAR_BODY_RADIUS * 2.0
+                    })
+            });
+            if candidate.distance(current) < delta.length() * 0.5 {
+                car.stop_timer = 0.2;
             }
+            if candidate.x.abs() > CITY_LIMIT {
+                candidate.x = -candidate.x.signum() * CITY_LIMIT;
+            }
+            if candidate.y.abs() > CITY_LIMIT {
+                candidate.y = -candidate.y.signum() * CITY_LIMIT;
+            }
+            transform.translation.x = candidate.x;
+            transform.translation.z = candidate.y;
+            car_positions[index] = transform.translation;
         }
         for (citizen_index, position) in citizen_positions.iter().enumerate() {
             let flat = Vec2::new(
@@ -664,10 +677,14 @@ fn simulate_city_life(
     }
 
     wanted.tick(dt, player_incident);
-    for (mut transform, patrol) in &mut patrols {
+    let patrol_positions: Vec<Vec2> = patrols
+        .iter()
+        .map(|(transform, _)| Vec2::new(transform.translation.x, transform.translation.z))
+        .collect();
+    for (index, (mut transform, patrol)) in (&mut patrols).into_iter().enumerate() {
         let position = Vec2::new(transform.translation.x, transform.translation.z);
         let target = if wanted.level > 0 {
-            Vec2::new(player.x, player.z)
+            player_flat
         } else {
             patrol.home
                 + Vec2::new(
@@ -683,10 +700,31 @@ fn simulate_city_life(
             } else {
                 2.4
             };
-            let step = delta.normalize() * (speed * dt).min(distance - 5.5);
-            transform.translation.x += step.x;
-            transform.translation.z += step.y;
-            transform.rotation = Quat::from_rotation_y(step.x.atan2(step.y));
+            let movement = delta.normalize() * (speed * dt).min(distance - 5.5);
+            let mut blockers: Vec<Vec2> = car_positions
+                .iter()
+                .map(|car| Vec2::new(car.x, car.z))
+                .collect();
+            blockers.extend(
+                patrol_positions
+                    .iter()
+                    .enumerate()
+                    .filter(|(other, _)| *other != index)
+                    .map(|(_, position)| *position),
+            );
+            let next = crate::physics::move_with_slide(position, movement, |point| {
+                city_collision(point, CAR_BODY_RADIUS)
+                    || point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
+                    || blockers.iter().any(|center| {
+                        center.distance(point) < CAR_BODY_RADIUS * 2.0
+                    })
+            });
+            let step = next - position;
+            transform.translation.x = next.x;
+            transform.translation.z = next.y;
+            if step.length_squared() > 1.0e-5 {
+                transform.rotation = Quat::from_rotation_y(step.x.atan2(step.y));
+            }
         }
         car_bodies.push((
             Vec2::new(transform.translation.x, transform.translation.z),
@@ -741,11 +779,15 @@ mod tests {
         assert_eq!(intersection_light_positions().len(), 9);
         let windows = facade_window_transforms();
         assert_eq!(windows.len(), 1_008);
-        assert!(
-            windows
-                .iter()
-                .all(|(p, _)| p.x.abs() < CITY_LIMIT && p.z.abs() < CITY_LIMIT && p.y > 0.0)
-        );
+        assert!(windows
+            .iter()
+            .all(|(p, _)| p.x.abs() < CITY_LIMIT && p.z.abs() < CITY_LIMIT && p.y > 0.0));
+    }
+
+    #[test]
+    fn traffic_and_police_cannot_drive_through_buildings() {
+        assert!(city_collision(Vec2::new(24.0, 24.0), CAR_BODY_RADIUS));
+        assert!(!city_collision(Vec2::new(0.0, 0.0), CAR_BODY_RADIUS));
     }
 
     #[test]
@@ -776,13 +818,13 @@ mod tests {
     }
 
     #[test]
-    fn wanted_caps_at_five_and_decays_in_stages() {
+    fn wanted_caps_at_six_and_decays_in_stages() {
         let mut wanted = WantedState::default();
-        for _ in 0..7 {
+        for _ in 0..8 {
             wanted.report_incident();
         }
-        assert_eq!(wanted.level, 5);
-        for _ in 0..6 {
+        assert_eq!(wanted.level, WANTED_LEVEL_MAX);
+        for _ in 0..7 {
             wanted.tick(WANTED_DECAY_START + 0.1, false);
         }
         assert_eq!(wanted.level, 0);
