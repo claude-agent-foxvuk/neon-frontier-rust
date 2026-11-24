@@ -262,12 +262,20 @@ fn setup(
                     commands.spawn((
                         Mesh3d(crosswalk_x_mesh.clone()),
                         MeshMaterial3d(crosswalk.clone()),
-                        Transform::from_xyz(intersection_x + offset, 0.075, intersection_z + side * 8.0),
+                        Transform::from_xyz(
+                            intersection_x + offset,
+                            0.075,
+                            intersection_z + side * 8.0,
+                        ),
                     ));
                     commands.spawn((
                         Mesh3d(crosswalk_z_mesh.clone()),
                         MeshMaterial3d(crosswalk.clone()),
-                        Transform::from_xyz(intersection_x + side * 8.0, 0.075, intersection_z + offset),
+                        Transform::from_xyz(
+                            intersection_x + side * 8.0,
+                            0.075,
+                            intersection_z + offset,
+                        ),
                     ));
                 }
             }
@@ -284,8 +292,11 @@ fn setup(
             commands.spawn((
                 Mesh3d(cube.clone()),
                 MeshMaterial3d(buildings[color_index].clone()),
-                Transform::from_xyz(px, height / 2.0, pz)
-                    .with_scale(Vec3::new(BUILDING_HALF * 2.0, height, BUILDING_HALF * 2.0)),
+                Transform::from_xyz(px, height / 2.0, pz).with_scale(Vec3::new(
+                    BUILDING_HALF * 2.0,
+                    height,
+                    BUILDING_HALF * 2.0,
+                )),
             ));
             for trim_x in [-1.0, 1.0] {
                 for trim_z in [-1.0, 1.0] {
@@ -578,8 +589,11 @@ fn controls(
             if game.speed.abs() < 2.0 {
                 let side = Vec3::new(game.yaw.cos(), 0.0, -game.yaw.sin()) * 3.0;
                 let exit = game.car + side;
-                if !collides(Vec2::new(exit.x, exit.z), PLAYER_BODY_RADIUS, &game.buildings)
-                    && !blocked_by_traffic(&traffic.cars, exit, PLAYER_BODY_RADIUS)
+                if !collides(
+                    Vec2::new(exit.x, exit.z),
+                    PLAYER_BODY_RADIUS,
+                    &game.buildings,
+                ) && !blocked_by_traffic(&traffic.cars, exit, PLAYER_BODY_RADIUS)
                 {
                     game.player = Vec3::new(exit.x, PLAYER_GROUND_Y, exit.z);
                     game.camera_yaw = game.yaw + std::f32::consts::PI + game.camera_orbit;
@@ -607,8 +621,11 @@ fn controls(
         game.yaw += steer * speed_factor * 1.8 * dt;
         let direction = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
         let next = game.car + direction * game.speed * dt;
-        if collides(Vec2::new(next.x, next.z), PLAYER_CAR_RADIUS, &game.buildings)
-            || blocked_by_traffic(&traffic.cars, next, PLAYER_CAR_RADIUS)
+        if collides(
+            Vec2::new(next.x, next.z),
+            PLAYER_CAR_RADIUS,
+            &game.buildings,
+        ) || blocked_by_traffic(&traffic.cars, next, PLAYER_CAR_RADIUS)
         {
             game.speed = 0.0;
         } else {
@@ -627,8 +644,11 @@ fn controls(
             PLAYER_WALK_SPEED
         };
         let next = game.player + direction * run * dt;
-        if !collides(Vec2::new(next.x, next.z), PLAYER_BODY_RADIUS, &game.buildings)
-            && !blocked_by_traffic(&traffic.cars, next, PLAYER_BODY_RADIUS)
+        if !collides(
+            Vec2::new(next.x, next.z),
+            PLAYER_BODY_RADIUS,
+            &game.buildings,
+        ) && !blocked_by_traffic(&traffic.cars, next, PLAYER_BODY_RADIUS)
             && !blocked_by_parked_car(next, game.car, PLAYER_BODY_RADIUS)
         {
             game.player = next;
@@ -705,7 +725,11 @@ fn update_world(
 ) {
     for (mut transform, mut visibility) in &mut players {
         transform.translation = game.player;
-        *visibility = if game.driving { Visibility::Hidden } else { Visibility::Visible };
+        *visibility = if game.driving {
+            Visibility::Hidden
+        } else {
+            Visibility::Visible
+        };
     }
     for mut transform in &mut cars {
         transform.translation = game.car;
@@ -763,7 +787,12 @@ fn update_hud(
     let objective = if game.stage < OBJECTIVES.len() {
         let target = OBJECTIVES[game.stage];
         let distance = Vec2::new(position.x - target.x, position.z - target.z).length();
-        format!("Маршрут «Три маяка»: точка {}/{} • {:.0} м", game.stage + 1, OBJECTIVES.len(), distance)
+        format!(
+            "Маршрут «Три маяка»: точка {}/{} • {:.0} м",
+            game.stage + 1,
+            OBJECTIVES.len(),
+            distance
+        )
     } else {
         "Маршрут выполнен! Награда получена".to_string()
     };
@@ -776,19 +805,35 @@ fn update_hud(
     };
     let state = format!("{} • розыск: {}", mode, "★".repeat(wanted.level as usize));
     let interaction = if game.driving {
-        if game.speed.abs() < 2.0 { "E: выйти из машины" } else { "Сбавь скорость и нажми E, чтобы выйти" }
+        if game.speed.abs() < 2.0 {
+            "E: выйти из машины"
+        } else {
+            "Сбавь скорость и нажми E, чтобы выйти"
+        }
     } else if game.player.distance(game.car) < 4.5 {
         "E: сесть в машину"
     } else {
         "Подойди к бирюзовой машине, чтобы сесть"
     };
-    let speed = if game.driving { format!("Скорость: {:.1} м/с", game.speed.abs()) } else { String::new() };
+    let speed = if game.driving {
+        format!("Скорость: {:.1} м/с", game.speed.abs())
+    } else {
+        String::new()
+    };
     let mouse_hint = if game.mouse_captured {
         "Камера: мышь • Esc: пауза • F: удар • Shift: бег"
     } else {
         "ЛКМ: захватить мышь и управлять камерой"
     };
-    let content = ui::compose_hud(&objective, game.credits, &state, interaction, &speed, mouse_hint, &game.notice);
+    let content = ui::compose_hud(
+        &objective,
+        game.credits,
+        &state,
+        interaction,
+        &speed,
+        mouse_hint,
+        &game.notice,
+    );
     for mut text in &mut labels {
         text.0 = content.clone();
     }
@@ -824,15 +869,26 @@ mod tests {
     #[test]
     fn parked_own_car_blocks_the_walking_player() {
         let car = Vec3::new(0.0, 0.65, 6.0);
-        assert!(blocked_by_parked_car(Vec3::new(0.0, 0.9, 8.0), car, PLAYER_BODY_RADIUS));
-        assert!(!blocked_by_parked_car(Vec3::new(0.0, 0.9, 10.0), car, PLAYER_BODY_RADIUS));
+        assert!(blocked_by_parked_car(
+            Vec3::new(0.0, 0.9, 8.0),
+            car,
+            PLAYER_BODY_RADIUS
+        ));
+        assert!(!blocked_by_parked_car(
+            Vec3::new(0.0, 0.9, 10.0),
+            car,
+            PLAYER_BODY_RADIUS
+        ));
     }
 
     #[test]
     fn jump_rises_and_returns_to_ground() {
-        let (mut y, mut speed, mut grounded) = integrate_jump(PLAYER_GROUND_Y, 0.0, true, true, 0.1);
+        let (mut y, mut speed, mut grounded) =
+            integrate_jump(PLAYER_GROUND_Y, 0.0, true, true, 0.1);
         assert!(y > PLAYER_GROUND_Y && speed > 0.0 && !grounded);
-        for _ in 0..40 { (y, speed, grounded) = integrate_jump(y, speed, grounded, false, 0.05); }
+        for _ in 0..40 {
+            (y, speed, grounded) = integrate_jump(y, speed, grounded, false, 0.05);
+        }
         assert_eq!(y, PLAYER_GROUND_Y);
         assert_eq!(speed, 0.0);
         assert!(grounded);
@@ -845,12 +901,15 @@ mod tests {
         let mut grounded = false;
         let mut peak = y;
         for _ in 0..200 {
-            let (next_y, next_speed, next_grounded) = integrate_jump(y, speed, grounded, false, 0.016);
+            let (next_y, next_speed, next_grounded) =
+                integrate_jump(y, speed, grounded, false, 0.016);
             y = next_y;
             speed = next_speed;
             grounded = next_grounded;
             peak = peak.max(y);
-            if grounded { break; }
+            if grounded {
+                break;
+            }
         }
         assert!(peak - PLAYER_GROUND_Y > 1.5);
         assert_eq!(y, PLAYER_GROUND_Y);
