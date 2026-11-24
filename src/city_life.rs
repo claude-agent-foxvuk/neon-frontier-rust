@@ -215,10 +215,22 @@ fn spawn_city_life(
         materials.add(Color::srgb(0.49, 0.39, 0.73)),
     ];
     let beacon_materials: Vec<_> = [
-        (Color::srgb(0.05, 0.55, 0.72), LinearRgba::rgb(0.0, 2.2, 4.0)),
-        (Color::srgb(0.72, 0.36, 0.08), LinearRgba::rgb(4.0, 1.4, 0.1)),
-        (Color::srgb(0.58, 0.16, 0.62), LinearRgba::rgb(2.8, 0.2, 3.5)),
-        (Color::srgb(0.18, 0.58, 0.32), LinearRgba::rgb(0.2, 3.2, 0.6)),
+        (
+            Color::srgb(0.05, 0.55, 0.72),
+            LinearRgba::rgb(0.0, 2.2, 4.0),
+        ),
+        (
+            Color::srgb(0.72, 0.36, 0.08),
+            LinearRgba::rgb(4.0, 1.4, 0.1),
+        ),
+        (
+            Color::srgb(0.58, 0.16, 0.62),
+            LinearRgba::rgb(2.8, 0.2, 3.5),
+        ),
+        (
+            Color::srgb(0.18, 0.58, 0.32),
+            LinearRgba::rgb(0.2, 3.2, 0.6),
+        ),
     ]
     .into_iter()
     .map(|(base_color, emissive)| {
@@ -252,7 +264,8 @@ fn spawn_city_life(
         commands.spawn((
             Mesh3d(car_mesh.clone()),
             MeshMaterial3d(car_materials[(road + 1) % car_materials.len()].clone()),
-            Transform::from_translation(along_z).with_rotation(traffic_rotation(false, direction_z)),
+            Transform::from_translation(along_z)
+                .with_rotation(traffic_rotation(false, direction_z)),
             TrafficCar {
                 speed: 6.6 + (road % 2) as f32 * 1.4,
                 direction: direction_z,
@@ -384,12 +397,16 @@ fn spawn_city_life(
         commands.spawn((
             Mesh3d(lamp_arm_mesh.clone()),
             MeshMaterial3d(lamp_post_material.clone()),
-            Transform::from_translation(position + Vec3::Y * 6.0 + Vec3::new(-side_x * 0.42, 0.0, 0.0)),
+            Transform::from_translation(
+                position + Vec3::Y * 6.0 + Vec3::new(-side_x * 0.42, 0.0, 0.0),
+            ),
         ));
         commands.spawn((
             Mesh3d(lamp_head_mesh.clone()),
             MeshMaterial3d(bulb),
-            Transform::from_translation(position + Vec3::Y * 5.95 + Vec3::new(-side_x * 0.95, 0.0, 0.0)),
+            Transform::from_translation(
+                position + Vec3::Y * 5.95 + Vec3::new(-side_x * 0.95, 0.0, 0.0),
+            ),
         ));
     }
     for (index, position) in intersection_light_positions().into_iter().enumerate() {
@@ -509,7 +526,11 @@ fn simulate_city_life(
     let now = time.elapsed_secs();
     let player = probe.position;
     let player_flat = Vec2::new(player.x, player.z);
-    let player_radius = if probe.in_vehicle { CAR_BODY_RADIUS } else { 0.5 };
+    let player_radius = if probe.in_vehicle {
+        CAR_BODY_RADIUS
+    } else {
+        0.5
+    };
     let punching = probe.punch;
     let player_forward = if probe.forward.length_squared() > 1.0e-6 {
         probe.forward.normalize()
@@ -715,9 +736,9 @@ fn simulate_city_life(
             let next = crate::physics::move_with_slide(position, movement, |point| {
                 city_collision(point, CAR_BODY_RADIUS)
                     || point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
-                    || blockers.iter().any(|center| {
-                        center.distance(point) < CAR_BODY_RADIUS * 2.0
-                    })
+                    || blockers
+                        .iter()
+                        .any(|center| center.distance(point) < CAR_BODY_RADIUS * 2.0)
             });
             let step = next - position;
             transform.translation.x = next.x;
@@ -779,9 +800,11 @@ mod tests {
         assert_eq!(intersection_light_positions().len(), 9);
         let windows = facade_window_transforms();
         assert_eq!(windows.len(), 1_008);
-        assert!(windows
-            .iter()
-            .all(|(p, _)| p.x.abs() < CITY_LIMIT && p.z.abs() < CITY_LIMIT && p.y > 0.0));
+        assert!(
+            windows
+                .iter()
+                .all(|(p, _)| p.x.abs() < CITY_LIMIT && p.z.abs() < CITY_LIMIT && p.y > 0.0)
+        );
     }
 
     #[test]
