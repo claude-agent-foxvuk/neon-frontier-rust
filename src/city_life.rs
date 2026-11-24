@@ -122,7 +122,7 @@ impl Default for PlayerProbe {
     fn default() -> Self {
         Self {
             position: Vec3::ZERO,
-            vehicle_position: Vec3::ZERO,
+            vehicle_position: Vec3::new(0.0, 0.65, 6.0),
             forward: Vec3::NEG_Z,
             in_vehicle: false,
             punch: false,
@@ -746,8 +746,11 @@ fn simulate_city_life(
     let now = time.elapsed_secs();
     let player = probe.position;
     let player_flat = Vec2::new(player.x, player.z);
-    let parked_vehicle = (!probe.in_vehicle && probe.vehicle_position != Vec3::ZERO)
-        .then_some(Vec2::new(probe.vehicle_position.x, probe.vehicle_position.z));
+    let parked_vehicle = if probe.in_vehicle {
+        None
+    } else {
+        Some(Vec2::new(probe.vehicle_position.x, probe.vehicle_position.z))
+    };
     let player_radius = if probe.in_vehicle {
         CAR_BODY_RADIUS
     } else {
@@ -1169,6 +1172,33 @@ mod tests {
     fn traffic_and_police_cannot_drive_through_buildings() {
         assert!(city_collision(Vec2::new(24.0, 24.0), CAR_BODY_RADIUS));
         assert!(!city_collision(Vec2::new(0.0, 0.0), CAR_BODY_RADIUS));
+    }
+
+    #[test]
+    fn traffic_detects_parked_player_vehicle_after_exit() {
+        let baseline = Vec2::ZERO;
+        let forward = Vec2::Y;
+        let player = Vec2::new(100.0, 0.0);
+        let vehicle = Some(Vec2::new(0.0, 3.0));
+
+        assert!(traffic_obstacle_ahead(
+            baseline,
+            forward,
+            player,
+            vehicle,
+            false,
+            &[],
+            0,
+        ));
+        assert!(!traffic_obstacle_ahead(
+            baseline,
+            forward,
+            player,
+            vehicle,
+            true,
+            &[],
+            0,
+        ));
     }
 
     #[test]
