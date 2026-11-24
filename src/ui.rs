@@ -37,6 +37,16 @@ pub fn compose_hud(
     mouse_hint: &str,
     notice: &str,
 ) -> String {
+    let objective = if objective.contains("Маршрут выполнен") {
+        "Маршрут продолжается • следующая точка появится автоматически"
+    } else {
+        objective
+    };
+    let notice = if notice.contains("Маршрут выполнен") {
+        ""
+    } else {
+        notice
+    };
     format!(
         "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • F5: сохранить • F9: загрузить\n{}",
         objective,
@@ -79,6 +89,22 @@ mod tests {
         assert!(hud.contains("Space: прыжок • F: удар"));
         assert!(hud.contains("ПЕШКОМ"));
         assert!(hud.contains("Сохранение загружено"));
+    }
+
+    #[test]
+    fn legacy_completed_route_state_is_not_rendered_or_persisted_in_hud() {
+        let hud = compose_hud(
+            "Маршрут выполнен! Награда получена",
+            100,
+            "ПЕШКОМ",
+            "E: сесть в машину",
+            "",
+            "ЛКМ: захватить мышь и управлять камерой",
+            "Маршрут выполнен! Награда получена",
+        );
+
+        assert!(!hud.contains("Маршрут выполнен"));
+        assert!(hud.contains("Маршрут продолжается"));
     }
 
     #[test]
