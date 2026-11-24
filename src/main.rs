@@ -23,6 +23,8 @@ const PLAYER_WALK_SPEED: f32 = 5.4;
 const PLAYER_RUN_SPEED: f32 = 9.2;
 const PUNCH_COOLDOWN: f32 = 0.45;
 const MISSION_MARKER_PULSE: f32 = 0.12;
+const PLAYER_BODY_RADIUS: f32 = 0.45;
+const PLAYER_CAR_RADIUS: f32 = 2.2;
 
 #[derive(Component)]
 struct PlayerVisual;
@@ -126,6 +128,23 @@ fn setup(
         perceptual_roughness: 0.72,
         ..default()
     });
+    let sidewalk = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.24, 0.31, 0.36),
+        metallic: 0.08,
+        perceptual_roughness: 0.88,
+        ..default()
+    });
+    let curb = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.48, 0.54, 0.58),
+        perceptual_roughness: 0.78,
+        ..default()
+    });
+    let crosswalk = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.78, 0.84, 0.85),
+        emissive: LinearRgba::rgb(0.04, 0.06, 0.07),
+        perceptual_roughness: 0.82,
+        ..default()
+    });
     let buildings = [
         materials.add(StandardMaterial {
             base_color: Color::srgb(0.09, 0.17, 0.28),
@@ -205,6 +224,56 @@ fn setup(
         }
     }
 
+    let sidewalk_mesh = meshes.add(Cuboid::new(340.0, 0.12, 1.8));
+    let side_curb_mesh = meshes.add(Cuboid::new(340.0, 0.18, 0.18));
+    let crosswalk_x_mesh = meshes.add(Cuboid::new(0.42, 0.035, 6.2));
+    let crosswalk_z_mesh = meshes.add(Cuboid::new(6.2, 0.035, 0.42));
+    for road in -3..=3 {
+        let c = road as f32 * ROAD_SPACING;
+        for side in [-1.0, 1.0] {
+            commands.spawn((
+                Mesh3d(sidewalk_mesh.clone()),
+                MeshMaterial3d(sidewalk.clone()),
+                Transform::from_xyz(c + side * 7.2, 0.045, 0.0),
+            ));
+            commands.spawn((
+                Mesh3d(sidewalk_mesh.clone()),
+                MeshMaterial3d(sidewalk.clone()),
+                Transform::from_xyz(0.0, 0.045, c + side * 7.2)
+                    .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+            ));
+            commands.spawn((
+                Mesh3d(side_curb_mesh.clone()),
+                MeshMaterial3d(curb.clone()),
+                Transform::from_xyz(c + side * 5.9, 0.08, 0.0),
+            ));
+            commands.spawn((
+                Mesh3d(side_curb_mesh.clone()),
+                MeshMaterial3d(curb.clone()),
+                Transform::from_xyz(0.0, 0.08, c + side * 5.9)
+                    .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+            ));
+        }
+    }
+    for intersection_x in [-96.0, 0.0, 96.0] {
+        for intersection_z in [-96.0, 0.0, 96.0] {
+            for offset in [-3.3, -1.1, 1.1, 3.3] {
+                for side in [-1.0, 1.0] {
+                    commands.spawn((
+                        Mesh3d(crosswalk_x_mesh.clone()),
+                        MeshMaterial3d(crosswalk.clone()),
+                        Transform::from_xyz(intersection_x + offset, 0.075, intersection_z + side * 8.0),
+                    ));
+                    commands.spawn((
+                        Mesh3d(crosswalk_z_mesh.clone()),
+                        MeshMaterial3d(crosswalk.clone()),
+                        Transform::from_xyz(intersection_x + side * 8.0, 0.075, intersection_z + offset),
+                    ));
+                }
+            }
+        }
+    }
+
     for x in -3_i32..=2 {
         for z in -3_i32..=2 {
             let px = x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
@@ -215,11 +284,8 @@ fn setup(
             commands.spawn((
                 Mesh3d(cube.clone()),
                 MeshMaterial3d(buildings[color_index].clone()),
-                Transform::from_xyz(px, height / 2.0, pz).with_scale(Vec3::new(
-                    BUILDING_HALF * 2.0,
-                    height,
-                    BUILDING_HALF * 2.0,
-                )),
+                Transform::from_xyz(px, height / 2.0, pz)
+                    .with_scale(Vec3::new(BUILDING_HALF * 2.0, height, BUILDING_HALF * 2.0)),
             ));
             for trim_x in [-1.0, 1.0] {
                 for trim_z in [-1.0, 1.0] {
@@ -324,6 +390,10 @@ fn blocked_by_traffic(cars: &[(Vec2, f32)], next: Vec3, clearance: f32) -> bool 
         .any(|(center, radius)| center.distance(flat) < *radius + clearance)
 }
 
+fn blocked_by_parked_car(next: Vec3, car: Vec3, clearance: f32) -> bool {
+    Vec2::new(next.x - car.x, next.z - car.z).length() < PLAYER_CAR_RADIUS + clearance
+}
+
 fn walk_direction(horizontal: f32, forward: f32, yaw: f32) -> Vec3 {
     let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
     let ahead = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
@@ -386,12 +456,12 @@ fn load_game(game: &mut Game) -> io::Result<()> {
         || !(-8.0..=24.0).contains(&snapshot.speed)
         || collides(
             Vec2::new(snapshot.player.x, snapshot.player.z),
-            0.45,
+            PLAYER_BODY_RADIUS,
             &game.buildings,
         )
         || collides(
             Vec2::new(snapshot.car.x, snapshot.car.z),
-            2.0,
+            PLAYER_CAR_RADIUS,
             &game.buildings,
         )
     {
@@ -508,7 +578,9 @@ fn controls(
             if game.speed.abs() < 2.0 {
                 let side = Vec3::new(game.yaw.cos(), 0.0, -game.yaw.sin()) * 3.0;
                 let exit = game.car + side;
-                if !collides(Vec2::new(exit.x, exit.z), 0.45, &game.buildings) {
+                if !collides(Vec2::new(exit.x, exit.z), PLAYER_BODY_RADIUS, &game.buildings)
+                    && !blocked_by_traffic(&traffic.cars, exit, PLAYER_BODY_RADIUS)
+                {
                     game.player = Vec3::new(exit.x, PLAYER_GROUND_Y, exit.z);
                     game.camera_yaw = game.yaw + std::f32::consts::PI + game.camera_orbit;
                     game.driving = false;
@@ -535,8 +607,8 @@ fn controls(
         game.yaw += steer * speed_factor * 1.8 * dt;
         let direction = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
         let next = game.car + direction * game.speed * dt;
-        if collides(Vec2::new(next.x, next.z), 2.0, &game.buildings)
-            || blocked_by_traffic(&traffic.cars, next, 1.8)
+        if collides(Vec2::new(next.x, next.z), PLAYER_CAR_RADIUS, &game.buildings)
+            || blocked_by_traffic(&traffic.cars, next, PLAYER_CAR_RADIUS)
         {
             game.speed = 0.0;
         } else {
@@ -555,8 +627,9 @@ fn controls(
             PLAYER_WALK_SPEED
         };
         let next = game.player + direction * run * dt;
-        if !collides(Vec2::new(next.x, next.z), 0.45, &game.buildings)
-            && !blocked_by_traffic(&traffic.cars, next, 0.45)
+        if !collides(Vec2::new(next.x, next.z), PLAYER_BODY_RADIUS, &game.buildings)
+            && !blocked_by_traffic(&traffic.cars, next, PLAYER_BODY_RADIUS)
+            && !blocked_by_parked_car(next, game.car, PLAYER_BODY_RADIUS)
         {
             game.player = next;
         }
@@ -632,11 +705,7 @@ fn update_world(
 ) {
     for (mut transform, mut visibility) in &mut players {
         transform.translation = game.player;
-        *visibility = if game.driving {
-            Visibility::Hidden
-        } else {
-            Visibility::Visible
-        };
+        *visibility = if game.driving { Visibility::Hidden } else { Visibility::Visible };
     }
     for mut transform in &mut cars {
         transform.translation = game.car;
@@ -679,7 +748,11 @@ fn update_world(
     }
 }
 
-fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<ui::Hud>>) {
+fn update_hud(
+    game: Res<Game>,
+    wanted: Res<city_life::WantedState>,
+    mut labels: Query<&mut Text, With<ui::Hud>>,
+) {
     if !game.started {
         for mut text in &mut labels {
             text.0 = ui::MAIN_MENU_TEXT.to_string();
@@ -690,52 +763,32 @@ fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<ui::Hud>>) {
     let objective = if game.stage < OBJECTIVES.len() {
         let target = OBJECTIVES[game.stage];
         let distance = Vec2::new(position.x - target.x, position.z - target.z).length();
-        format!(
-            "Маршрут «Три маяка»: точка {}/{} • {:.0} м",
-            game.stage + 1,
-            OBJECTIVES.len(),
-            distance
-        )
+        format!("Маршрут «Три маяка»: точка {}/{} • {:.0} м", game.stage + 1, OBJECTIVES.len(), distance)
     } else {
         "Маршрут выполнен! Награда получена".to_string()
     };
-    let state = if game.paused {
+    let mode = if game.paused {
         "ПАУЗА — Esc или ЛКМ, чтобы продолжить"
     } else if game.driving {
         "ЗА РУЛЁМ"
     } else {
         "ПЕШКОМ"
     };
+    let state = format!("{} • розыск: {}", mode, "★".repeat(wanted.level as usize));
     let interaction = if game.driving {
-        if game.speed.abs() < 2.0 {
-            "E: выйти из машины"
-        } else {
-            "Сбавь скорость и нажми E, чтобы выйти"
-        }
+        if game.speed.abs() < 2.0 { "E: выйти из машины" } else { "Сбавь скорость и нажми E, чтобы выйти" }
     } else if game.player.distance(game.car) < 4.5 {
         "E: сесть в машину"
     } else {
         "Подойди к бирюзовой машине, чтобы сесть"
     };
-    let speed = if game.driving {
-        format!("Скорость: {:.1} м/с", game.speed.abs())
-    } else {
-        String::new()
-    };
+    let speed = if game.driving { format!("Скорость: {:.1} м/с", game.speed.abs()) } else { String::new() };
     let mouse_hint = if game.mouse_captured {
         "Камера: мышь • Esc: пауза • F: удар • Shift: бег"
     } else {
         "ЛКМ: захватить мышь и управлять камерой"
     };
-    let content = ui::compose_hud(
-        &objective,
-        game.credits,
-        state,
-        interaction,
-        &speed,
-        mouse_hint,
-        &game.notice,
-    );
+    let content = ui::compose_hud(&objective, game.credits, &state, interaction, &speed, mouse_hint, &game.notice);
     for mut text in &mut labels {
         text.0 = content.clone();
     }
@@ -764,22 +817,22 @@ mod tests {
         let right = walk_direction(1.0, 0.0, 0.0);
         assert!(forward.distance(Vec3::NEG_Z) < 1.0e-5);
         assert!(right.distance(Vec3::X) < 1.0e-5);
-
         let turned_forward = walk_direction(0.0, 1.0, std::f32::consts::FRAC_PI_2);
         assert!(turned_forward.distance(Vec3::NEG_X) < 1.0e-5);
     }
 
     #[test]
-    fn jump_rises_and_returns_to_ground() {
-        let (mut y, mut speed, mut grounded) =
-            integrate_jump(PLAYER_GROUND_Y, 0.0, true, true, 0.1);
-        assert!(y > PLAYER_GROUND_Y);
-        assert!(speed > 0.0);
-        assert!(!grounded);
+    fn parked_own_car_blocks_the_walking_player() {
+        let car = Vec3::new(0.0, 0.65, 6.0);
+        assert!(blocked_by_parked_car(Vec3::new(0.0, 0.9, 8.0), car, PLAYER_BODY_RADIUS));
+        assert!(!blocked_by_parked_car(Vec3::new(0.0, 0.9, 10.0), car, PLAYER_BODY_RADIUS));
+    }
 
-        for _ in 0..40 {
-            (y, speed, grounded) = integrate_jump(y, speed, grounded, false, 0.05);
-        }
+    #[test]
+    fn jump_rises_and_returns_to_ground() {
+        let (mut y, mut speed, mut grounded) = integrate_jump(PLAYER_GROUND_Y, 0.0, true, true, 0.1);
+        assert!(y > PLAYER_GROUND_Y && speed > 0.0 && !grounded);
+        for _ in 0..40 { (y, speed, grounded) = integrate_jump(y, speed, grounded, false, 0.05); }
         assert_eq!(y, PLAYER_GROUND_Y);
         assert_eq!(speed, 0.0);
         assert!(grounded);
@@ -792,15 +845,12 @@ mod tests {
         let mut grounded = false;
         let mut peak = y;
         for _ in 0..200 {
-            let (next_y, next_speed, next_grounded) =
-                integrate_jump(y, speed, grounded, false, 0.016);
+            let (next_y, next_speed, next_grounded) = integrate_jump(y, speed, grounded, false, 0.016);
             y = next_y;
             speed = next_speed;
             grounded = next_grounded;
             peak = peak.max(y);
-            if grounded {
-                break;
-            }
+            if grounded { break; }
         }
         assert!(peak - PLAYER_GROUND_Y > 1.5);
         assert_eq!(y, PLAYER_GROUND_Y);
