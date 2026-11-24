@@ -10,7 +10,7 @@ use bevy::{
     input::mouse::MouseMotion,
     post_process::bloom::Bloom,
     prelude::*,
-    window::{CursorGrabMode, CursorOptions},
+    window::{CursorGrabMode, CursorOptions, Window},
 };
 use std::io;
 
@@ -597,6 +597,7 @@ fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut mouse_motion: MessageReader<MouseMotion>,
+    window: Single<&Window>,
     mut cursor_options: Single<&mut CursorOptions>,
     time: Res<Time>,
     traffic: Res<city_life::TrafficBodies>,
@@ -607,7 +608,6 @@ fn controls(
 ) {
     if !game.started {
         let options = ui::MENU_OPTIONS.len();
-        let selected = game.menu_index.min(options - 1);
         if game.credits_screen {
             if keys.just_pressed(KeyCode::Escape)
                 || keys.just_pressed(KeyCode::Enter)
@@ -617,18 +617,34 @@ fn controls(
             }
         } else {
             if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS) {
-                game.menu_index = (selected + 1) % options;
+                game.menu_index = (game.menu_index + 1) % options;
             }
             if keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW) {
-                game.menu_index = (selected + options - 1) % options;
+                game.menu_index = (game.menu_index + options - 1) % options;
             }
-            if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
-                match ui::MENU_OPTIONS[selected] {
+            let mouse_selected = if mouse_buttons.just_pressed(MouseButton::Left) {
+                window
+                    .cursor_position()
+                    .and_then(ui::menu_index_at_cursor)
+            } else {
+                None
+            };
+            if let Some(index) = mouse_selected {
+                game.menu_index = index;
+            }
+            let activate = keys.just_pressed(KeyCode::Enter)
+                || keys.just_pressed(KeyCode::Space)
+                || mouse_selected.is_some();
+            if activate {
+                match ui::MENU_OPTIONS[game.menu_index.min(options - 1)] {
                     ui::MenuOption::NewGame => reset_run(&mut game),
                     ui::MenuOption::LoadGame => {
                         if load_game(&mut game, &mut probe, &mut restore).is_ok() {
                             game.started = true;
                             game.mouse_captured = false;
+                        } else {
+                            game.notice = format!("Не удалось загрузить {}", save::SAVE_FILE_NAME);
+                            game.notice_timer = 3.0;
                         }
                     }
                     ui::MenuOption::Credits => game.credits_screen = true,
@@ -760,7 +776,7 @@ fn controls(
             + Vec2::new(right.x, right.z) * game.lateral_speed)
             * dt;
         let start = Vec2::new(game.car.x, game.car.z);
-        let mut blockers = traffic.cars.clone();
+        let blockers = traffic.cars.clone();
         let separated = physics::separate_from_circles(start, PLAYER_CAR_RADIUS, &blockers);
         let moved = physics::move_with_slide(separated, intended, |point| {
             collides(point, PLAYER_CAR_RADIUS, &game.buildings)
