@@ -16,6 +16,10 @@ const WORLD_EDGE: f32 = 165.0;
 const ROAD_SPACING: f32 = 48.0;
 const BUILDING_HALF: f32 = 14.0;
 const MOUSE_SENSITIVITY: f32 = 0.0035;
+const PLAYER_GROUND_Y: f32 = 0.9;
+const PLAYER_JUMP_SPEED: f32 = 8.0;
+const PLAYER_GRAVITY: f32 = 22.0;
+const MISSION_MARKER_PULSE: f32 = 0.12;
 
 #[derive(Component)]
 struct PlayerVisual;
@@ -35,6 +39,8 @@ struct Game {
     car: Vec3,
     yaw: f32,
     speed: f32,
+    player_vertical_speed: f32,
+    player_grounded: bool,
     started: bool,
     driving: bool,
     paused: bool,
@@ -53,10 +59,12 @@ struct Game {
 impl Default for Game {
     fn default() -> Self {
         Self {
-            player: Vec3::new(2.0, 0.9, 2.0),
+            player: Vec3::new(2.0, PLAYER_GROUND_Y, 2.0),
             car: Vec3::new(0.0, 0.65, 6.0),
             yaw: 0.0,
             speed: 0.0,
+            player_vertical_speed: 0.0,
+            player_grounded: true,
             started: false,
             driving: false,
             paused: false,
@@ -240,7 +248,14 @@ fn setup(
     commands.spawn((
         Mesh3d(cube.clone()),
         MeshMaterial3d(marker_mat),
-        Transform::from_translation(OBJECTIVES[0]).with_scale(Vec3::new(1.1, 2.6, 1.1)),
+        PointLight {
+            color: Color::srgb(0.15, 0.72, 1.0),
+            intensity: 850.0,
+            range: 20.0,
+            shadow_maps_enabled: false,
+            ..default()
+        },
+        Transform::from_translation(OBJECTIVES[0]).with_scale(mission_marker_scale(0.0)),
         MissionMarker,
     ));
     commands.spawn((
@@ -304,6 +319,39 @@ fn walk_direction(horizontal: f32, forward: f32, yaw: f32) -> Vec3 {
     (right * horizontal + ahead * forward).normalize_or_zero()
 }
 
+fn integrate_jump(
+    y: f32,
+    vertical_speed: f32,
+    grounded: bool,
+    jump_pressed: bool,
+    dt: f32,
+) -> (f32, f32, bool) {
+    let mut speed = vertical_speed;
+    let mut is_grounded = grounded;
+    if is_grounded && jump_pressed {
+        speed = PLAYER_JUMP_SPEED;
+        is_grounded = false;
+    }
+    if !is_grounded {
+        speed -= PLAYER_GRAVITY * dt;
+        let next_y = y + speed * dt;
+        if next_y <= PLAYER_GROUND_Y {
+            return (PLAYER_GROUND_Y, 0.0, true);
+        }
+        return (next_y, speed, false);
+    }
+    (PLAYER_GROUND_Y, 0.0, true)
+}
+
+fn mission_marker_scale(elapsed_secs: f32) -> Vec3 {
+    let pulse = 1.0 + (elapsed_secs * 2.2).sin() * MISSION_MARKER_PULSE;
+    Vec3::new(1.1, 2.6, 1.1) * pulse
+}
+
+fn mission_marker_light_intensity(elapsed_secs: f32) -> f32 {
+    850.0 + (elapsed_secs * 2.2).sin() * 250.0
+}
+
 fn snapshot_from_game(game: &Game) -> save::Snapshot {
     save::Snapshot {
         player: game.player,
@@ -341,10 +389,12 @@ fn load_game(game: &mut Game) -> io::Result<()> {
             "Save position or progress is outside the supported game state",
         ));
     }
-    game.player = snapshot.player;
+    game.player = Vec3::new(snapshot.player.x, PLAYER_GROUND_Y, snapshot.player.z);
     game.car = snapshot.car;
     game.yaw = snapshot.yaw;
     game.speed = snapshot.speed;
+    game.player_vertical_speed = 0.0;
+    game.player_grounded = true;
     game.stage = snapshot.stage;
     game.credits = snapshot.credits;
     game.driving = snapshot.driving;
@@ -439,15 +489,19 @@ fn controls(
                 let side = Vec3::new(game.yaw.cos(), 0.0, -game.yaw.sin()) * 3.0;
                 let exit = game.car + side;
                 if !collides(Vec2::new(exit.x, exit.z), 0.45, &game.buildings) {
-                    game.player = Vec3::new(exit.x, 0.9, exit.z);
+                    game.player = Vec3::new(exit.x, PLAYER_GROUND_Y, exit.z);
                     game.camera_yaw = game.yaw + std::f32::consts::PI + game.camera_orbit;
                     game.driving = false;
                     game.speed = 0.0;
+                    game.player_vertical_speed = 0.0;
+                    game.player_grounded = true;
                 }
             }
-        } else if game.player.distance(game.car) < 4.5 {
+        } else if game.player_grounded && game.player.distance(game.car) < 4.5 {
             game.driving = true;
             game.camera_orbit = 0.0;
+            game.player_vertical_speed = 0.0;
+            game.player_grounded = true;
         }
     }
     if game.driving {
@@ -482,6 +536,16 @@ fn controls(
         if !collides(Vec2::new(next.x, next.z), 0.45, &game.buildings) {
             game.player = next;
         }
+        let (y, vertical_speed, grounded) = integrate_jump(
+            game.player.y,
+            game.player_vertical_speed,
+            game.player_grounded,
+            keys.just_pressed(KeyCode::Space),
+            dt,
+        );
+        game.player.y = y;
+        game.player_vertical_speed = vertical_speed;
+        game.player_grounded = grounded;
     }
     if game.stage < OBJECTIVES.len() {
         let position = if game.driving { game.car } else { game.player };
@@ -524,7 +588,7 @@ fn update_world(
         ),
     >,
     mut markers: Query<
-        (&mut Transform, &mut Visibility),
+        (&mut Transform, &mut Visibility, &mut PointLight),
         (
             With<MissionMarker>,
             Without<PlayerVisual>,
@@ -546,9 +610,12 @@ fn update_world(
         transform.translation = game.car;
         transform.rotation = Quat::from_rotation_y(game.yaw);
     }
-    for (mut transform, mut visibility) in &mut markers {
+    let elapsed_secs = time.elapsed_secs();
+    for (mut transform, mut visibility, mut light) in &mut markers {
         if game.stage < OBJECTIVES.len() {
             transform.translation = OBJECTIVES[game.stage];
+            transform.scale = mission_marker_scale(elapsed_secs);
+            light.intensity = mission_marker_light_intensity(elapsed_secs);
             *visibility = Visibility::Visible;
         } else {
             *visibility = Visibility::Hidden;
@@ -668,5 +735,32 @@ mod tests {
 
         let turned_forward = walk_direction(0.0, 1.0, std::f32::consts::FRAC_PI_2);
         assert!(turned_forward.distance(Vec3::NEG_X) < 1.0e-5);
+    }
+
+    #[test]
+    fn jump_rises_and_returns_to_ground() {
+        let (mut y, mut speed, mut grounded) =
+            integrate_jump(PLAYER_GROUND_Y, 0.0, true, true, 0.1);
+        assert!(y > PLAYER_GROUND_Y);
+        assert!(speed > 0.0);
+        assert!(!grounded);
+
+        for _ in 0..40 {
+            (y, speed, grounded) = integrate_jump(y, speed, grounded, false, 0.05);
+        }
+        assert_eq!(y, PLAYER_GROUND_Y);
+        assert_eq!(speed, 0.0);
+        assert!(grounded);
+    }
+
+    #[test]
+    fn mission_beacon_pulse_stays_within_visual_limits() {
+        for time in [0.0, 0.7, 1.4, 2.1, 2.8] {
+            let scale = mission_marker_scale(time);
+            let intensity = mission_marker_light_intensity(time);
+            assert!(scale.x >= 1.1 * (1.0 - MISSION_MARKER_PULSE));
+            assert!(scale.y <= 2.6 * (1.0 + MISSION_MARKER_PULSE));
+            assert!((340.0..=1_100.0).contains(&intensity));
+        }
     }
 }
