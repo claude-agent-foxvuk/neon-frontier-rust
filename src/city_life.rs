@@ -551,8 +551,7 @@ fn simulate_city_life(
             if flat_distance < PUNCH_RANGE && flat_distance > 1.0e-4 {
                 let aim = to_citizen.normalize().dot(player_forward);
                 if aim > PUNCH_CONE || flat_distance < BODY_PUSH {
-                    knock_velocity =
-                        to_citizen.normalize() * PUNCH_KNOCK + Vec3::Y * KNOCK_LIFT;
+                    knock_velocity = to_citizen.normalize() * PUNCH_KNOCK + Vec3::Y * KNOCK_LIFT;
                     hit = true;
                 }
             }
@@ -576,9 +575,9 @@ fn simulate_city_life(
             0.0
         };
         let path_rotation = pedestrian_rotation(citizen.along_x, direction);
-        transform.translation =
-            base + citizen.displacement - Vec3::Y * (FALL_TILT * fallen);
-        transform.rotation = path_rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2 * fallen);
+        transform.translation = base + citizen.displacement - Vec3::Y * (FALL_TILT * fallen);
+        transform.rotation =
+            path_rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2 * fallen);
     }
 
     bodies.cars = car_bodies;
