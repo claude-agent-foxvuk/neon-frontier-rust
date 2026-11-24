@@ -1,9 +1,17 @@
-use bevy::prelude::Component;
+use bevy::prelude::{Component, FontSize, FontSource, TextFont};
 
 pub const MAIN_MENU_TEXT: &str = "NEON FRONTIER\n\nOPEN-WORLD ACTION • WINDOWS 11\n\nНажми Enter или ЛКМ, чтобы начать\nWASD — движение / газ • Shift — бег\nE — сесть в машину / выйти\nB — Bloom • F5 — сохранить • F9 — загрузить\n\nСделано FoxVuk и Claude Opus 5.5";
 
 #[derive(Component)]
 pub struct Hud;
+
+pub fn hud_font() -> TextFont {
+    TextFont {
+        font: FontSource::families("'Segoe UI', Arial, sans-serif"),
+        font_size: FontSize::Px(19.0),
+        ..default()
+    }
+}
 
 pub fn compose_hud(
     objective: &str,
