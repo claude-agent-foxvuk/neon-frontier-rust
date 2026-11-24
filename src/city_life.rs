@@ -161,6 +161,125 @@ impl WantedState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CitizenSave {
+    pub origin: Vec3,
+    pub displacement: Vec3,
+    pub knock_velocity: Vec3,
+    pub knocked: f32,
+    pub health: f32,
+    pub dead: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TrafficSave {
+    pub position: Vec3,
+    pub speed: f32,
+    pub direction: f32,
+    pub along_x: bool,
+    pub lane_offset: f32,
+    pub stop_timer: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PatrolSave {
+    pub position: Vec3,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OfficerSave {
+    pub position: Vec3,
+    pub active: bool,
+    pub shot_timer: f32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldSnapshot {
+    pub health: f32,
+    pub wanted_level: u8,
+    pub wanted_timer: f32,
+    pub traffic: Vec<TrafficSave>,
+    pub citizens: Vec<CitizenSave>,
+    pub patrols: Vec<PatrolSave>,
+    pub officers: Vec<OfficerSave>,
+}
+
+#[derive(Resource, Default)]
+pub struct WorldState {
+    pub snapshot: WorldSnapshot,
+}
+
+#[derive(Resource, Default)]
+pub struct WorldRestore(pub Option<WorldSnapshot>);
+
+fn restore_world(
+    snapshot: &WorldSnapshot,
+    probe: &mut PlayerProbe,
+    wanted: &mut WantedState,
+    traffic: &mut Query<
+        (&mut Transform, &mut TrafficCar),
+        (
+            Without<Citizen>,
+            Without<PolicePatrol>,
+            Without<FootOfficer>,
+        ),
+    >,
+    citizens: &mut Query<
+        (&mut Transform, &mut Citizen),
+        (
+            Without<TrafficCar>,
+            Without<PolicePatrol>,
+            Without<FootOfficer>,
+        ),
+    >,
+    patrols: &mut Query<
+        (&mut Transform, &PolicePatrol),
+        (Without<TrafficCar>, Without<Citizen>, Without<FootOfficer>),
+    >,
+    officers: &mut Query<
+        (&mut Transform, &mut FootOfficer, &mut Visibility),
+        (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>),
+    >,
+) {
+    probe.health = snapshot.health.clamp(0.0, 100.0);
+    wanted.level = snapshot.wanted_level.min(WANTED_LEVEL_MAX);
+    wanted.decay_timer = snapshot.wanted_timer.max(0.0);
+    for ((transform, car), saved) in traffic.iter_mut().zip(snapshot.traffic.iter()) {
+        transform.translation = saved.position;
+        transform.rotation = traffic_rotation(saved.along_x, saved.direction);
+        car.speed = saved.speed;
+        car.direction = saved.direction;
+        car.along_x = saved.along_x;
+        car.lane_offset = saved.lane_offset;
+        car.avoid_offset = saved.lane_offset;
+        car.stop_timer = saved.stop_timer;
+    }
+    for ((transform, citizen), saved) in citizens.iter_mut().zip(snapshot.citizens.iter()) {
+        citizen.origin = saved.origin;
+        citizen.displacement = saved.displacement;
+        citizen.knock_velocity = saved.knock_velocity;
+        citizen.knocked = saved.knocked;
+        citizen.health = saved.health;
+        citizen.dead = saved.dead;
+        transform.translation = saved.origin + saved.displacement;
+        transform.rotation = pedestrian_rotation(citizen.along_x, 1.0);
+    }
+    for ((transform, _), saved) in patrols.iter_mut().zip(snapshot.patrols.iter()) {
+        transform.translation = saved.position;
+    }
+    for ((transform, officer, visibility), saved) in officers.iter_mut().zip(snapshot.officers.iter())
+    {
+        transform.translation = saved.position;
+        officer.active = saved.active;
+        officer.shot_timer = saved.shot_timer;
+        *visibility = if saved.active {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+}
+
 pub struct CityLifePlugin;
 
 impl Plugin for CityLifePlugin {
@@ -168,6 +287,8 @@ impl Plugin for CityLifePlugin {
         app.init_resource::<PlayerProbe>()
             .init_resource::<TrafficBodies>()
             .init_resource::<WantedState>()
+            .init_resource::<WorldState>()
+            .init_resource::<WorldRestore>()
             .add_systems(Startup, spawn_city_life)
             .add_systems(Update, simulate_city_life);
     }
@@ -323,8 +444,7 @@ fn spawn_city_life(
         commands.spawn((
             Mesh3d(car_mesh.clone()),
             MeshMaterial3d(car_materials[(road + 1) % car_materials.len()].clone()),
-            Transform::from_translation(along_z)
-                .with_rotation(traffic_rotation(false, direction_z)),
+            Transform::from_translation(along_z).with_rotation(traffic_rotation(false, direction_z)),
             TrafficCar {
                 speed: 6.6 + (road % 2) as f32 * 1.4,
                 direction: direction_z,
@@ -661,6 +781,7 @@ fn traffic_obstacle_ahead(
     vehicle: Option<Vec2>,
     in_vehicle: bool,
     car_positions: &[Vec3],
+    police_positions: &[Vec2],
     car_index: usize,
 ) -> bool {
     let side = Vec2::new(-forward.y, forward.x);
@@ -671,6 +792,7 @@ fn traffic_obstacle_ahead(
     };
     blocks_path(player)
         || (!in_vehicle && vehicle.map_or(false, |position| blocks_path(position)))
+        || police_positions.iter().any(|position| blocks_path(*position))
         || car_positions.iter().enumerate().any(|(other, position)| {
             other != car_index && blocks_path(Vec2::new(position.x, position.z))
         })
@@ -705,6 +827,8 @@ fn simulate_city_life(
     mut probe: ResMut<PlayerProbe>,
     mut bodies: ResMut<TrafficBodies>,
     mut wanted: ResMut<WantedState>,
+    mut world: ResMut<WorldState>,
+    mut restore: ResMut<WorldRestore>,
     mut traffic: Query<
         (&mut Transform, &mut TrafficCar),
         (
@@ -743,6 +867,17 @@ fn simulate_city_life(
     if dt <= 0.0 {
         return;
     }
+    if let Some(snapshot) = restore.0.take() {
+        restore_world(
+            &snapshot,
+            &mut probe,
+            &mut wanted,
+            &mut traffic,
+            &mut citizens,
+            &mut patrols,
+            &mut officers,
+        );
+    }
     let now = time.elapsed_secs();
     let player = probe.position;
     let player_flat = Vec2::new(player.x, player.z);
@@ -771,6 +906,10 @@ fn simulate_city_life(
         .iter()
         .map(|(transform, _)| transform.translation)
         .collect();
+    let police_positions: Vec<Vec2> = patrols
+        .iter()
+        .map(|(transform, _)| Vec2::new(transform.translation.x, transform.translation.z))
+        .collect();
     let mut knock_events: Vec<(usize, Vec3)> = Vec::with_capacity(4);
     let mut car_bodies: Vec<(Vec2, f32)> = Vec::with_capacity(car_positions.len() + 2);
 
@@ -789,6 +928,7 @@ fn simulate_city_life(
             parked_vehicle,
             probe.in_vehicle,
             &car_positions,
+            &police_positions,
             index,
         );
         let blocks_movement = |point: Vec2| {
@@ -796,6 +936,9 @@ fn simulate_city_life(
                 || parked_vehicle.map_or(false, |vehicle| {
                     point.distance(vehicle) < CAR_BODY_RADIUS * 2.0
                 })
+                || police_positions
+                    .iter()
+                    .any(|center| center.distance(point) < CAR_BODY_RADIUS * 2.0)
                 || car_positions.iter().enumerate().any(|(other, position)| {
                     if other == index {
                         return false;
@@ -956,10 +1099,6 @@ fn simulate_city_life(
     }
 
     wanted.tick(dt, player_incident);
-    let patrol_positions: Vec<Vec2> = patrols
-        .iter()
-        .map(|(transform, _)| Vec2::new(transform.translation.x, transform.translation.z))
-        .collect();
     for (index, (mut transform, patrol)) in (&mut patrols).into_iter().enumerate() {
         let position = Vec2::new(transform.translation.x, transform.translation.z);
         let tactics = if wanted.level > 0 {
@@ -1001,7 +1140,7 @@ fn simulate_city_life(
                 .map(|car| Vec2::new(car.x, car.z))
                 .collect();
             blockers.extend(
-                patrol_positions
+                police_positions
                     .iter()
                     .enumerate()
                     .filter(|(other, _)| *other != index)
@@ -1114,6 +1253,46 @@ fn simulate_city_life(
     }
     bodies.cars = car_bodies;
     probe.punch = false;
+
+    let mut snapshot = WorldSnapshot {
+        health: probe.health,
+        wanted_level: wanted.level,
+        wanted_timer: wanted.decay_timer,
+        ..Default::default()
+    };
+    for (transform, car) in &mut traffic {
+        snapshot.traffic.push(TrafficSave {
+            position: transform.translation,
+            speed: car.speed,
+            direction: car.direction,
+            along_x: car.along_x,
+            lane_offset: car.lane_offset,
+            stop_timer: car.stop_timer,
+        });
+    }
+    for (_, citizen) in &mut citizens {
+        snapshot.citizens.push(CitizenSave {
+            origin: citizen.origin,
+            displacement: citizen.displacement,
+            knock_velocity: citizen.knock_velocity,
+            knocked: citizen.knocked,
+            health: citizen.health,
+            dead: citizen.dead,
+        });
+    }
+    for (transform, _) in &mut patrols {
+        snapshot.patrols.push(PatrolSave {
+            position: transform.translation,
+        });
+    }
+    for (transform, officer, _) in &mut officers {
+        snapshot.officers.push(OfficerSave {
+            position: transform.translation,
+            active: officer.active,
+            shot_timer: officer.shot_timer,
+        });
+    }
+    world.snapshot = snapshot;
 }
 
 #[cfg(test)]
@@ -1187,6 +1366,7 @@ mod tests {
             vehicle,
             false,
             &[],
+            &[],
             0,
         ));
         assert!(!traffic_obstacle_ahead(
@@ -1196,6 +1376,32 @@ mod tests {
             vehicle,
             true,
             &[],
+            &[],
+            0,
+        ));
+    }
+
+    #[test]
+    fn traffic_detects_a_police_car_ahead() {
+        let blocker = [Vec2::new(0.0, 4.0)];
+        assert!(traffic_obstacle_ahead(
+            Vec2::ZERO,
+            Vec2::Y,
+            Vec2::new(200.0, 0.0),
+            None,
+            false,
+            &[],
+            &blocker,
+            0,
+        ));
+        assert!(!traffic_obstacle_ahead(
+            Vec2::ZERO,
+            Vec2::Y,
+            Vec2::new(200.0, 0.0),
+            None,
+            false,
+            &[],
+            &[Vec2::new(0.0, -4.0)],
             0,
         ));
     }
