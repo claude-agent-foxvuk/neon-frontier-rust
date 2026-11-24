@@ -1,6 +1,6 @@
 use bevy::prelude::{Component, FontSize, FontSource, TextFont};
 
-pub const MAIN_MENU_TEXT: &str = "NEON FRONTIER\n\nOPEN-WORLD ACTION • WINDOWS 11\n\nНажми Enter или ЛКМ, чтобы начать\nWASD — движение / газ • Shift — бег\nE — сесть в машину / выйти\nB — Bloom • F5 — сохранить • F9 — загрузить\n\nСделано FoxVuk и Claude Opus 5.5";
+pub const MAIN_MENU_TEXT: &str = "NEON FRONTIER\n\nOPEN-WORLD ACTION • WINDOWS 11\n\nНажми Enter или ЛКМ, чтобы начать\nWASD — движение / газ • Shift — бег\nSpace — прыжок • E — машина / выход\nB — Bloom • F5 — сохранить • F9 — загрузить\n\nСделано FoxVuk и Claude Opus 5.5";
 
 #[derive(Component)]
 pub struct Hud;
@@ -23,7 +23,7 @@ pub fn compose_hud(
     notice: &str,
 ) -> String {
     format!(
-        "NEON FRONTIER • ранняя версия\n{}\nКредиты: {}\n{}\n{}\n{}\nWASD: движение/газ • Shift: бег\n{}\nB: bloom • F5: сохранить • F9: загрузить\n{}",
+        "NEON FRONTIER • ранняя версия\n{}\nКредиты: {}\n{}\n{}\n{}\nWASD: движение/газ • Shift: бег • Space: прыжок\n{}\nB: bloom • F5: сохранить • F9: загрузить\n{}",
         objective, credits, state, interaction, speed, mouse_hint, notice
     )
 }
@@ -36,6 +36,7 @@ mod tests {
     fn main_menu_shows_start_instructions_and_requested_credit() {
         assert!(MAIN_MENU_TEXT.contains("Нажми Enter"));
         assert!(MAIN_MENU_TEXT.contains("Сделано FoxVuk и Claude Opus 5.5"));
+        assert!(MAIN_MENU_TEXT.contains("Space — прыжок"));
     }
 
     #[test]
@@ -53,6 +54,7 @@ mod tests {
         assert!(hud.contains("точка 1/3"));
         assert!(hud.contains("Кредиты: 100"));
         assert!(hud.contains("WASD: движение/газ"));
+        assert!(hud.contains("Space: прыжок"));
         assert!(hud.contains("Сохранение загружено"));
     }
 }
