@@ -5,7 +5,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 
-const TILE_SIZE: u32 = 128;
+const TILE_SIZE: u32 = 256;
 
 pub struct SurfaceTextures {
     pub asphalt: Handle<Image>,
@@ -54,18 +54,23 @@ fn noise(x: u32, y: u32, salt: u32) -> u8 {
 fn asphalt_pixels() -> Vec<u8> {
     pixels(|x, y| {
         let grain = noise(x, y, 7) as i16 - 15;
+        let aggregate = noise(x / 2, y / 2, 19) as i16;
         let broad = noise(x / 8, y / 8, 101) as i16 - 15;
-        let aggregate = if noise(x / 2, y / 2, 19) > 27 { 18 } else { 0 };
-        let repair = if noise(x / 16, y / 16, 127) > 29 {
-            12
+        let patch = noise(x / 24, y / 24, 127);
+        let repair = if patch > 28 { -18 } else if patch < 4 { 8 } else { 0 };
+        let tar_fleck = if aggregate > 27 { -22 } else { 0 };
+        let crack = if noise(x / 12, y / 12, 223) > 29
+            && noise(x / 3, y / 3, 229) < 12
+        {
+            -16
         } else {
             0
         };
-        let shade = grain * 2 + broad * 2 + aggregate + repair;
+        let shade = grain * 2 + broad + repair + tar_fleck + crack;
         [
-            (35_i16 + shade).clamp(0, 255) as u8,
-            (43_i16 + shade).clamp(0, 255) as u8,
-            (53_i16 + shade).clamp(0, 255) as u8,
+            (39_i16 + shade).clamp(0, 255) as u8,
+            (47_i16 + shade).clamp(0, 255) as u8,
+            (58_i16 + shade).clamp(0, 255) as u8,
             255,
         ]
     })
@@ -73,17 +78,23 @@ fn asphalt_pixels() -> Vec<u8> {
 
 fn pavement_pixels() -> Vec<u8> {
     pixels(|x, y| {
-        let joint = x % 32 < 2 || y % 24 < 2;
+        let local_x = x % 32;
+        let local_y = y % 32;
+        let joint = local_x < 2 || local_y < 2;
+        let slab_x = x / 32;
+        let slab_y = y / 32;
         let grain = noise(x, y, 31) as i16 - 15;
-        let slab = ((x / 32 + (y / 24) * 3) % 2) as i16 * 9;
-        let grit = if noise(x / 2, y / 2, 137) > 28 { 13 } else { 0 };
+        let slab = noise(slab_x, slab_y, 83) as i16 - 15;
+        let stain = if noise(x / 8, y / 8, 137) > 27 { -14 } else { 0 };
+        let grit = if noise(x / 2, y / 2, 151) > 28 { 12 } else { 0 };
         if joint {
-            [39, 50, 58, 255]
+            [34, 44, 53, 255]
         } else {
+            let detail = grain + slab / 2 + stain + grit;
             [
-                (96_i16 + grain + slab + grit).clamp(0, 255) as u8,
-                (111_i16 + grain + slab + grit).clamp(0, 255) as u8,
-                (120_i16 + grain + slab + grit).clamp(0, 255) as u8,
+                (102_i16 + detail).clamp(0, 255) as u8,
+                (117_i16 + detail).clamp(0, 255) as u8,
+                (126_i16 + detail).clamp(0, 255) as u8,
                 255,
             ]
         }
@@ -92,37 +103,50 @@ fn pavement_pixels() -> Vec<u8> {
 
 fn facade_pixels() -> Vec<u8> {
     pixels(|x, y| {
+        let bay_x = x / 32;
+        let bay_y = y / 32;
         let local_x = x % 32;
-        let local_y = y % 24;
-        let window = (5..27).contains(&local_x) && (5..20).contains(&local_y);
-        if window {
-            let variation = noise(x / 32, y / 24, 53);
-            if variation > 18 {
+        let local_y = y % 32;
+        let inset_x = 4 + (noise(bay_x, bay_y, 211) % 3) as u32;
+        let inset_y = 4 + (noise(bay_x, bay_y, 223) % 4) as u32;
+        let window_width = 19 + (noise(bay_x, bay_y, 227) % 7) as u32;
+        let window_height = 19 + (noise(bay_x, bay_y, 229) % 7) as u32;
+        let in_window = (inset_x..inset_x + window_width).contains(&local_x)
+            && (inset_y..inset_y + window_height).contains(&local_y);
+        let frame = in_window
+            || local_x + 1 == inset_x
+            || local_x == inset_x + window_width
+            || local_y + 1 == inset_y
+            || local_y == inset_y + window_height;
+        if frame {
+            [31, 48, 59, 255]
+        } else if in_window {
+            let variation = noise(bay_x, bay_y, 53);
+            if variation > 15 {
                 let glow = variation as i16 / 3;
                 [
-                    (154_i16 + glow).clamp(0, 255) as u8,
-                    (112_i16 + glow / 2).clamp(0, 255) as u8,
-                    76,
+                    (151_i16 + glow).clamp(0, 255) as u8,
+                    (108_i16 + glow / 2).clamp(0, 255) as u8,
+                    (72_i16 + glow / 3).clamp(0, 255) as u8,
                     255,
                 ]
             } else {
-                [20, 37, 53, 255]
+                [18, 33, 48, 255]
             }
-        } else if local_x == 4 || local_x == 27 || local_y == 4 || local_y == 20 {
-            [43, 62, 74, 255]
         } else {
             let grain = noise(x, y, 71) as i16 - 15;
-            let weathering = if noise(x / 4, y / 4, 149) > 26 {
-                -13
+            let weathering = if noise(x / 5, y / 5, 149) > 27 {
+                -15
             } else {
                 0
             };
-            let groove = if local_x == 0 || local_x == 31 { -9 } else { 0 };
-            let detail = grain * 2 + weathering + groove;
+            let streak = if noise(x / 16, y / 32, 241) > 29 { -12 } else { 0 };
+            let groove = if local_x == 0 || local_x == 31 { -10 } else { 0 };
+            let detail = grain + weathering + streak + groove;
             [
-                (75_i16 + detail).clamp(0, 255) as u8,
-                (90_i16 + detail).clamp(0, 255) as u8,
-                (105_i16 + detail).clamp(0, 255) as u8,
+                (78_i16 + detail).clamp(0, 255) as u8,
+                (94_i16 + detail).clamp(0, 255) as u8,
+                (108_i16 + detail).clamp(0, 255) as u8,
                 255,
             ]
         }
@@ -131,13 +155,15 @@ fn facade_pixels() -> Vec<u8> {
 
 fn ground_pixels() -> Vec<u8> {
     pixels(|x, y| {
-        let variation = noise(x, y, 89) as i16 - 15;
+        let fine = noise(x, y, 89) as i16 - 15;
         let patch = noise(x / 8, y / 8, 163) as i16 - 15;
-        let detail = variation + patch / 2;
+        let broad = noise(x / 32, y / 32, 181) as i16 - 15;
+        let detail = fine / 2 + patch + broad / 2;
+        let fleck = if noise(x / 2, y / 2, 193) > 29 { 10 } else { 0 };
         [
-            (28_i16 + detail / 2).clamp(0, 255) as u8,
-            (70_i16 + detail).clamp(0, 255) as u8,
-            (57_i16 + detail / 2).clamp(0, 255) as u8,
+            (30_i16 + detail / 2 + fleck).clamp(0, 255) as u8,
+            (72_i16 + detail + fleck).clamp(0, 255) as u8,
+            (56_i16 + detail / 2 + fleck / 2).clamp(0, 255) as u8,
             255,
         ]
     })
@@ -166,5 +192,12 @@ mod tests {
         assert_ne!(facade_pixels(), ground_pixels());
         assert!(asphalt.chunks_exact(4).any(|pixel| pixel[0] > 50));
         assert!(asphalt.chunks_exact(4).any(|pixel| pixel[0] < 25));
+    }
+
+    #[test]
+    fn larger_surface_tiles_add_more_spatial_variation() {
+        assert_eq!(TILE_SIZE, 256);
+        assert!(facade_pixels().chunks_exact(4).any(|pixel| pixel[0] > 150));
+        assert!(pavement_pixels().chunks_exact(4).any(|pixel| pixel[0] < 50));
     }
 }
