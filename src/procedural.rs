@@ -57,7 +57,13 @@ fn asphalt_pixels() -> Vec<u8> {
         let aggregate = noise(x / 2, y / 2, 19) as i16;
         let broad = noise(x / 8, y / 8, 101) as i16 - 15;
         let patch = noise(x / 24, y / 24, 127);
-        let repair = if patch > 28 { -18 } else if patch < 4 { 8 } else { 0 };
+        let repair = if patch > 28 {
+            -18
+        } else if patch < 4 {
+            8
+        } else {
+            0
+        };
         let tar_fleck = if aggregate > 27 { -22 } else { 0 };
         let crack = if noise(x / 12, y / 12, 223) > 29 && noise(x / 3, y / 3, 229) < 12 {
             -16
@@ -83,7 +89,11 @@ fn pavement_pixels() -> Vec<u8> {
         let slab_y = y / 32;
         let grain = noise(x, y, 31) as i16 - 15;
         let slab = noise(slab_x, slab_y, 83) as i16 - 15;
-        let stain = if noise(x / 8, y / 8, 137) > 27 { -14 } else { 0 };
+        let stain = if noise(x / 8, y / 8, 137) > 27 {
+            -14
+        } else {
+            0
+        };
         let grit = if noise(x / 2, y / 2, 151) > 28 { 12 } else { 0 };
         if joint {
             [34, 44, 53, 255]
@@ -134,9 +144,21 @@ fn facade_pixels() -> Vec<u8> {
             }
         } else {
             let grain = noise(x, y, 71) as i16 - 15;
-            let weathering = if noise(x / 5, y / 5, 149) > 27 { -15 } else { 0 };
-            let streak = if noise(x / 16, y / 32, 241) > 29 { -12 } else { 0 };
-            let groove = if local_x == 0 || local_x == 31 { -10 } else { 0 };
+            let weathering = if noise(x / 5, y / 5, 149) > 27 {
+                -15
+            } else {
+                0
+            };
+            let streak = if noise(x / 16, y / 32, 241) > 29 {
+                -12
+            } else {
+                0
+            };
+            let groove = if local_x == 0 || local_x == 31 {
+                -10
+            } else {
+                0
+            };
             let detail = grain + weathering + streak + groove;
             [
                 (78_i16 + detail).clamp(0, 255) as u8,
