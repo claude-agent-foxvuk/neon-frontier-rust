@@ -53,7 +53,7 @@ fn police_tactics(level: u8, patrol_index: usize, now: f32) -> PoliceTactics {
     let search_scale = 0.75 + 0.25 * (now * 0.8 + patrol_index as f32 * 1.7).sin().abs();
     let (speed, stop_distance, flank_distance, search_radius) = match level {
         1 => (5.5, 4.0, 0.0, 0.0),
-        2 => (7.0, 4.5, 0.0, 1.5),
+        2 => (7.0, 4.5, 1.5, 1.5),
         3 => (8.5, 5.0, 5.0, 2.5),
         4 => (10.0, 5.5, 8.0, 3.5),
         5 => (11.5, 6.0, 12.0, 5.0),
