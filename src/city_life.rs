@@ -326,8 +326,14 @@ fn spawn_city_life(
 
 fn animate_city_life(
     time: Res<Time>,
-    mut traffic: Query<(&mut Transform, &TrafficCar)>,
-    mut citizens: Query<(&mut Transform, &Citizen)>,
+    mut traffic: Query<
+        (&mut Transform, &TrafficCar),
+        (With<TrafficCar>, Without<Citizen>),
+    >,
+    mut citizens: Query<
+        (&mut Transform, &Citizen),
+        (With<Citizen>, Without<TrafficCar>),
+    >,
 ) {
     let dt = time.delta_secs().min(0.05);
     for (mut transform, car) in &mut traffic {
@@ -432,10 +438,8 @@ mod tests {
                 .iter()
                 .any(|(_, rotation)| *rotation == Quat::IDENTITY)
         );
-        assert!(
-            windows
-                .iter()
-                .any(|(_, rotation)| { (rotation * Vec3::Z).distance(Vec3::X) < 1.0e-5 })
-        );
+        assert!(windows.iter().any(|(_, rotation)| {
+            (rotation * Vec3::Z).distance(Vec3::X) < 1.0e-5
+        }));
     }
 }
