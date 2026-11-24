@@ -59,9 +59,7 @@ fn asphalt_pixels() -> Vec<u8> {
         let patch = noise(x / 24, y / 24, 127);
         let repair = if patch > 28 { -18 } else if patch < 4 { 8 } else { 0 };
         let tar_fleck = if aggregate > 27 { -22 } else { 0 };
-        let crack = if noise(x / 12, y / 12, 223) > 29
-            && noise(x / 3, y / 3, 229) < 12
-        {
+        let crack = if noise(x / 12, y / 12, 223) > 29 && noise(x / 3, y / 3, 229) < 12 {
             -16
         } else {
             0
@@ -111,13 +109,14 @@ fn facade_pixels() -> Vec<u8> {
         let inset_y = 4 + (noise(bay_x, bay_y, 223) % 4) as u32;
         let window_width = 19 + (noise(bay_x, bay_y, 227) % 7) as u32;
         let window_height = 19 + (noise(bay_x, bay_y, 229) % 7) as u32;
-        let in_window = (inset_x..inset_x + window_width).contains(&local_x)
-            && (inset_y..inset_y + window_height).contains(&local_y);
+        let in_window_x = (inset_x..inset_x + window_width).contains(&local_x);
+        let in_window_y = (inset_y..inset_y + window_height).contains(&local_y);
+        let in_window = in_window_x && in_window_y;
         let frame = in_window
-            || local_x + 1 == inset_x
-            || local_x == inset_x + window_width
-            || local_y + 1 == inset_y
-            || local_y == inset_y + window_height;
+            && (local_x == inset_x
+                || local_x + 1 == inset_x + window_width
+                || local_y == inset_y
+                || local_y + 1 == inset_y + window_height);
         if frame {
             [31, 48, 59, 255]
         } else if in_window {
@@ -135,11 +134,7 @@ fn facade_pixels() -> Vec<u8> {
             }
         } else {
             let grain = noise(x, y, 71) as i16 - 15;
-            let weathering = if noise(x / 5, y / 5, 149) > 27 {
-                -15
-            } else {
-                0
-            };
+            let weathering = if noise(x / 5, y / 5, 149) > 27 { -15 } else { 0 };
             let streak = if noise(x / 16, y / 32, 241) > 29 { -12 } else { 0 };
             let groove = if local_x == 0 || local_x == 31 { -10 } else { 0 };
             let detail = grain + weathering + streak + groove;
@@ -195,9 +190,10 @@ mod tests {
     }
 
     #[test]
-    fn larger_surface_tiles_add_more_spatial_variation() {
-        assert_eq!(TILE_SIZE, 256);
-        assert!(facade_pixels().chunks_exact(4).any(|pixel| pixel[0] > 150));
+    fn surface_maps_have_broad_color_ranges() {
+        let facade = facade_pixels();
+        assert!(facade.chunks_exact(4).any(|pixel| pixel[0] > 150));
+        assert!(facade.chunks_exact(4).any(|pixel| pixel[0] < 35));
         assert!(pavement_pixels().chunks_exact(4).any(|pixel| pixel[0] < 50));
     }
 }
