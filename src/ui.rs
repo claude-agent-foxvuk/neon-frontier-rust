@@ -1,6 +1,21 @@
 use bevy::prelude::{Component, FontSize, FontSource, TextFont};
 
-pub const MAIN_MENU_TEXT: &str = "NEON FRONTIER\n\nOPEN-WORLD ACTION • WINDOWS 11\n\nНажми Enter или ЛКМ, чтобы начать\nWASD — движение / газ • Shift — бег\nSpace — прыжок • E — машина / выход\nF — удар по пешеходам • B — Bloom\nF5 — сохранить • F9 — загрузить\n\nСделано FoxVuk и Claude Opus 5.5";
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MenuOption {
+    NewGame,
+    LoadGame,
+    Credits,
+}
+
+pub const MENU_OPTIONS: [MenuOption; 3] = [
+    MenuOption::NewGame,
+    MenuOption::LoadGame,
+    MenuOption::Credits,
+];
+
+pub const IN_GAME_HELP: &str = "WASD — движение / газ • Shift — бег\nSpace — прыжок • E — машина / выход\nF — удар по пешеходам • B — Bloom\nF5 — сохранить • F9 — загрузить";
+
+pub const SHORT_CREDITS: &str = "Сделано FoxVuk и Claude Opus 5.5";
 
 #[derive(Component)]
 pub struct Hud;
@@ -13,6 +28,41 @@ pub fn hud_font() -> TextFont {
     }
 }
 
+fn option_label(option: MenuOption) -> &'static str {
+    match option {
+        MenuOption::NewGame => "Новая игра",
+        MenuOption::LoadGame => "Загрузить сохранение",
+        MenuOption::Credits => "Кредитс",
+    }
+}
+
+pub fn main_menu_text(selected: usize, credits_open: bool, notice: &str) -> String {
+    if credits_open {
+        let mut text = String::from("NEON FRONTIER\n\nКРЕДИТС\n\n");
+        text.push_str("Открытый мир на Rust и Bevy для Windows 11\n");
+        text.push_str(SHORT_CREDITS);
+        text.push_str("\n\n");
+        text.push_str(IN_GAME_HELP);
+        text.push_str("\n\nEsc или Enter — назад в меню");
+        return text;
+    }
+    let mut text = String::from("NEON FRONTIER\n\nOPEN-WORLD ACTION • WINDOWS 11\n\n");
+    for (index, option) in MENU_OPTIONS.iter().enumerate() {
+        text.push_str(if index == selected { "> " } else { "  " });
+        text.push_str(option_label(*option));
+        text.push('\n');
+    }
+    text.push_str("\nСтрелки вверх / вниз — выбор • Enter — подтвердить\n");
+    text.push_str(IN_GAME_HELP);
+    text.push('\n');
+    if !notice.is_empty() {
+        text.push_str(notice);
+        text.push('\n');
+    }
+    text.push_str(SHORT_CREDITS);
+    text
+}
+
 fn wanted_status(state: &str) -> String {
     let Some((mode, stars)) = state.split_once(" • розыск: ") else {
         return state.to_string();
@@ -21,7 +71,7 @@ fn wanted_status(state: &str) -> String {
     let response = match level {
         0 => "патрули не разыскивают игрока",
         1 => "патруль начинает автомобильное преследование",
-        2 => "патруль быстрее сближается с целью",
+        2 => "патруль высаживает офицеров",
         3..=5 => "скорость автомобильного преследования растёт",
         _ => "максимальный уровень преследования",
     };
@@ -48,14 +98,8 @@ pub fn compose_hud(
         notice
     };
     format!(
-        "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • F5: сохранить • F9: загрузить\n{}",
-        objective,
-        credits,
-        wanted_status(state),
-        interaction,
-        speed,
-        mouse_hint,
-        notice
+        "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • E: машина/выход • F5: сохранить • F9: загрузить\n{}",
+        objective, credits, wanted_status(state), interaction, speed, mouse_hint, notice
     )
 }
 
@@ -64,11 +108,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn main_menu_shows_start_instructions_and_requested_credit() {
-        assert!(MAIN_MENU_TEXT.contains("Нажми Enter"));
-        assert!(MAIN_MENU_TEXT.contains("Сделано FoxVuk и Claude Opus 5.5"));
-        assert!(MAIN_MENU_TEXT.contains("Space — прыжок"));
-        assert!(MAIN_MENU_TEXT.contains("F — удар по пешеходам"));
+    fn main_menu_lists_the_three_entries() {
+        let menu = main_menu_text(0, false, "");
+        assert!(menu.contains("Новая игра"));
+        assert!(menu.contains("Загрузить сохранение"));
+        assert!(menu.contains("Кредитс"));
+        assert!(menu.contains(SHORT_CREDITS));
+        assert!(menu.contains("Enter"));
+    }
+
+    #[test]
+    fn selected_entry_is_marked_and_moves_with_the_cursor() {
+        let first = main_menu_text(0, false, "");
+        let second = main_menu_text(1, false, "");
+        assert!(first.contains("> Новая игра"));
+        assert!(!first.contains("> Загрузить сохранение"));
+        assert!(second.contains("> Загрузить сохранение"));
+        assert!(!second.contains("> Новая игра"));
+    }
+
+    #[test]
+    fn credits_screen_names_the_authors_and_returns_hint() {
+        let credits = main_menu_text(0, true, "");
+        assert!(credits.contains("КРЕДИТС"));
+        assert!(credits.contains(SHORT_CREDITS));
+        assert!(credits.contains("назад в меню"));
+        assert!(!credits.contains("> Новая игра"));
+    }
+
+    #[test]
+    fn menu_shows_notice_after_a_failed_load() {
+        let menu = main_menu_text(0, false, "Не удалось загрузить сохранение");
+        assert!(menu.contains("Не удалось загрузить сохранение"));
     }
 
     #[test]
