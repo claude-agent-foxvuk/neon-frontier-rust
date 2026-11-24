@@ -17,8 +17,11 @@ const ROAD_SPACING: f32 = 48.0;
 const BUILDING_HALF: f32 = 14.0;
 const MOUSE_SENSITIVITY: f32 = 0.0035;
 const PLAYER_GROUND_Y: f32 = 0.9;
-const PLAYER_JUMP_SPEED: f32 = 8.0;
-const PLAYER_GRAVITY: f32 = 22.0;
+const PLAYER_JUMP_SPEED: f32 = 9.9;
+const PLAYER_GRAVITY: f32 = 25.0;
+const PLAYER_WALK_SPEED: f32 = 5.4;
+const PLAYER_RUN_SPEED: f32 = 9.2;
+const PUNCH_COOLDOWN: f32 = 0.45;
 const MISSION_MARKER_PULSE: f32 = 0.12;
 
 #[derive(Component)]
@@ -41,6 +44,7 @@ struct Game {
     speed: f32,
     player_vertical_speed: f32,
     player_grounded: bool,
+    punch_cooldown: f32,
     started: bool,
     driving: bool,
     paused: bool,
@@ -65,6 +69,7 @@ impl Default for Game {
             speed: 0.0,
             player_vertical_speed: 0.0,
             player_grounded: true,
+            punch_cooldown: 0.0,
             started: false,
             driving: false,
             paused: false,
@@ -313,6 +318,12 @@ fn collides(pos: Vec2, radius: f32, buildings: &[Vec2]) -> bool {
     })
 }
 
+fn blocked_by_traffic(cars: &[(Vec2, f32)], next: Vec3, clearance: f32) -> bool {
+    let flat = Vec2::new(next.x, next.z);
+    cars.iter()
+        .any(|(center, radius)| center.distance(flat) < *radius + clearance)
+}
+
 fn walk_direction(horizontal: f32, forward: f32, yaw: f32) -> Vec3 {
     let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
     let ahead = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
@@ -408,6 +419,8 @@ fn controls(
     mut mouse_motion: MessageReader<MouseMotion>,
     mut cursor_options: Single<&mut CursorOptions>,
     time: Res<Time>,
+    traffic: Res<city_life::TrafficBodies>,
+    mut probe: ResMut<city_life::PlayerProbe>,
     mut game: ResMut<Game>,
 ) {
     if !game.started {
@@ -483,6 +496,13 @@ fn controls(
     if game.paused {
         return;
     }
+
+    game.punch_cooldown = (game.punch_cooldown - dt).max(0.0);
+    if !game.driving && game.punch_cooldown <= 0.0 && keys.just_pressed(KeyCode::KeyF) {
+        game.punch_cooldown = PUNCH_COOLDOWN;
+        probe.punch = true;
+    }
+
     if keys.just_pressed(KeyCode::KeyE) {
         if game.driving {
             if game.speed.abs() < 2.0 {
@@ -515,7 +535,9 @@ fn controls(
         game.yaw += steer * speed_factor * 1.8 * dt;
         let direction = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
         let next = game.car + direction * game.speed * dt;
-        if collides(Vec2::new(next.x, next.z), 2.0, &game.buildings) {
+        if collides(Vec2::new(next.x, next.z), 2.0, &game.buildings)
+            || blocked_by_traffic(&traffic.cars, next, 1.8)
+        {
             game.speed = 0.0;
         } else {
             game.car = next;
@@ -527,13 +549,15 @@ fn controls(
         let forward =
             (keys.pressed(KeyCode::KeyW) as i32 - keys.pressed(KeyCode::KeyS) as i32) as f32;
         let direction = walk_direction(horizontal, forward, game.camera_yaw);
-        let run = if keys.pressed(KeyCode::ShiftLeft) {
-            8.0
+        let run = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
+            PLAYER_RUN_SPEED
         } else {
-            5.0
+            PLAYER_WALK_SPEED
         };
         let next = game.player + direction * run * dt;
-        if !collides(Vec2::new(next.x, next.z), 0.45, &game.buildings) {
+        if !collides(Vec2::new(next.x, next.z), 0.45, &game.buildings)
+            && !blocked_by_traffic(&traffic.cars, next, 0.45)
+        {
             game.player = next;
         }
         let (y, vertical_speed, grounded) = integrate_jump(
@@ -555,6 +579,14 @@ fn controls(
             game.credits += 100;
         }
     }
+
+    probe.position = if game.driving { game.car } else { game.player };
+    probe.forward = if game.driving {
+        Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos())
+    } else {
+        walk_direction(0.0, 1.0, game.camera_yaw)
+    };
+    probe.in_vehicle = game.driving;
 }
 
 fn update_world(
@@ -691,7 +723,7 @@ fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<ui::Hud>>) {
         String::new()
     };
     let mouse_hint = if game.mouse_captured {
-        "Камера: мышь • Esc: пауза и освободить мышь"
+        "Камера: мышь • Esc: пауза • F: удар • Shift: бег"
     } else {
         "ЛКМ: захватить мышь и управлять камерой"
     };
@@ -751,6 +783,34 @@ mod tests {
         assert_eq!(y, PLAYER_GROUND_Y);
         assert_eq!(speed, 0.0);
         assert!(grounded);
+    }
+
+    #[test]
+    fn jump_clears_a_tall_step() {
+        let mut y = PLAYER_GROUND_Y;
+        let mut speed = PLAYER_JUMP_SPEED;
+        let mut grounded = false;
+        let mut peak = y;
+        for _ in 0..200 {
+            let (next_y, next_speed, next_grounded) =
+                integrate_jump(y, speed, grounded, false, 0.016);
+            y = next_y;
+            speed = next_speed;
+            grounded = next_grounded;
+            peak = peak.max(y);
+            if grounded {
+                break;
+            }
+        }
+        assert!(peak - PLAYER_GROUND_Y > 1.5);
+        assert_eq!(y, PLAYER_GROUND_Y);
+    }
+
+    #[test]
+    fn traffic_cars_block_the_player() {
+        let cars = vec![(Vec2::new(4.0, 0.0), 2.2)];
+        assert!(blocked_by_traffic(&cars, Vec3::new(5.0, 0.0, 0.0), 0.45));
+        assert!(!blocked_by_traffic(&cars, Vec3::new(12.0, 0.0, 0.0), 0.45));
     }
 
     #[test]
