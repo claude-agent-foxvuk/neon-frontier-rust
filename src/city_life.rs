@@ -131,11 +131,7 @@ fn streetlight_positions() -> Vec<Vec3> {
         for road_z in [-96.0, 0.0, 96.0] {
             for side_x in [-1.0, 1.0] {
                 for side_z in [-1.0, 1.0] {
-                    positions.push(Vec3::new(
-                        road_x + side_x * 7.4,
-                        0.0,
-                        road_z + side_z * 7.4,
-                    ));
+                    positions.push(Vec3::new(road_x + side_x * 7.4, 0.0, road_z + side_z * 7.4));
                 }
             }
         }
@@ -357,10 +353,7 @@ fn spawn_city_life(
     }
 
     let landmark_mesh = meshes.add(Cuboid::default());
-    for (index, (grid_x, grid_z)) in [(-1, -1), (-1, 1), (1, -1), (1, 1)]
-        .into_iter()
-        .enumerate()
-    {
+    for (index, (grid_x, grid_z)) in [(-1, -1), (-1, 1), (1, -1), (1, 1)].into_iter().enumerate() {
         let x = grid_x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
         let z = grid_z as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
         let height = 8.0 + (((grid_x + 3) * 7 + (grid_z + 3) * 11) % 6) as f32 * 4.0;
