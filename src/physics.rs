@@ -3,11 +3,7 @@ use bevy::prelude::Vec2;
 const MAX_SUBSTEP: f32 = 0.3;
 const SEPARATION_PASSES: usize = 6;
 
-pub fn move_with_slide(
-    start: Vec2,
-    delta: Vec2,
-    mut blocked: impl FnMut(Vec2) -> bool,
-) -> Vec2 {
+pub fn move_with_slide(start: Vec2, delta: Vec2, mut blocked: impl FnMut(Vec2) -> bool) -> Vec2 {
     let distance = delta.length();
     if distance <= f32::EPSILON {
         return start;
