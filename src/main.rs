@@ -544,7 +544,8 @@ fn controls(
         } else {
             game.camera_yaw -= mouse_delta.x * MOUSE_SENSITIVITY;
         }
-        game.camera_pitch = (game.camera_pitch - mouse_delta.y * MOUSE_SENSITIVITY).clamp(0.12, 1.05);
+        game.camera_pitch =
+            (game.camera_pitch - mouse_delta.y * MOUSE_SENSITIVITY).clamp(0.12, 1.05);
     }
 
     if keys.just_pressed(KeyCode::KeyB) {
@@ -630,9 +631,9 @@ fn controls(
         let separated = physics::separate_from_circles(start, PLAYER_CAR_RADIUS, &blockers);
         let moved = physics::move_with_slide(separated, intended, |point| {
             collides(point, PLAYER_CAR_RADIUS, &game.buildings)
-                || blockers.iter().any(|(center, radius)| {
-                    center.distance(point) < radius + PLAYER_CAR_RADIUS
-                })
+                || blockers
+                    .iter()
+                    .any(|(center, radius)| center.distance(point) < radius + PLAYER_CAR_RADIUS)
         });
         if moved.distance(start) + 0.02 < intended.length() {
             game.speed *= 0.28;
@@ -658,9 +659,9 @@ fn controls(
         let delta = Vec2::new(direction.x, direction.z) * run * dt;
         let moved = physics::move_with_slide(separated, delta, |point| {
             collides(point, PLAYER_BODY_RADIUS, &game.buildings)
-                || blockers.iter().any(|(center, radius)| {
-                    center.distance(point) < radius + PLAYER_BODY_RADIUS
-                })
+                || blockers
+                    .iter()
+                    .any(|(center, radius)| center.distance(point) < radius + PLAYER_BODY_RADIUS)
         });
         game.player.x = moved.x;
         game.player.z = moved.y;
