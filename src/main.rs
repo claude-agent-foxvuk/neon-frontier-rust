@@ -46,6 +46,10 @@ struct Game {
     car: Vec3,
     yaw: f32,
     speed: f32,
+    steering: f32,
+    lateral_speed: f32,
+    player_facing_yaw: f32,
+    player_moving: bool,
     player_vertical_speed: f32,
     player_grounded: bool,
     punch_cooldown: f32,
@@ -71,6 +75,10 @@ impl Default for Game {
             car: Vec3::new(0.0, 0.65, 6.0),
             yaw: 0.0,
             speed: 0.0,
+            steering: 0.0,
+            lateral_speed: 0.0,
+            player_facing_yaw: 0.0,
+            player_moving: false,
             player_vertical_speed: 0.0,
             player_grounded: true,
             punch_cooldown: 0.0,
@@ -96,6 +104,29 @@ const OBJECTIVES: [Vec3; 3] = [
     Vec3::new(48.0, 1.3, -96.0),
     Vec3::new(-96.0, 1.3, -96.0),
 ];
+
+const ALTERNATE_OBJECTIVES: [Vec3; 3] = [
+    Vec3::new(-48.0, 1.3, 0.0),
+    Vec3::new(-48.0, 1.3, 96.0),
+    Vec3::new(96.0, 1.3, 96.0),
+];
+
+fn mission_target(stage: usize, credits: u32) -> Vec3 {
+    let objectives = if (credits / 300) % 2 == 0 {
+        &OBJECTIVES
+    } else {
+        &ALTERNATE_OBJECTIVES
+    };
+    objectives[stage]
+}
+
+fn mission_name(credits: u32) -> &'static str {
+    if (credits / 300) % 2 == 0 {
+        "Три маяка"
+    } else {
+        "Ночной маршрут"
+    }
+}
 
 fn main() {
     App::new()
@@ -413,6 +444,34 @@ fn walk_direction(horizontal: f32, forward: f32, yaw: f32) -> Vec3 {
     (right * horizontal + ahead * forward).normalize_or_zero()
 }
 
+fn facing_yaw(direction: Vec3) -> Option<f32> {
+    if direction.length_squared() > 1.0e-6 {
+        Some(direction.x.atan2(direction.z))
+    } else {
+        None
+    }
+}
+
+fn vehicle_speed_step(speed: f32, accelerating: bool, braking: bool, dt: f32) -> f32 {
+    let dt = dt.max(0.0);
+    if braking {
+        if speed > 0.0 {
+            (speed - 22.0 * dt).max(0.0)
+        } else {
+            (speed - 8.0 * dt).max(-8.0)
+        }
+    } else if accelerating {
+        (speed + 14.0 * dt).clamp(-8.0, 24.0)
+    } else {
+        speed * (1.0 - 0.7 * dt).max(0.0)
+    }
+}
+
+fn vehicle_steering_step(steering: f32, input: f32, dt: f32) -> f32 {
+    let blend = (dt.max(0.0) * 8.0).clamp(0.0, 1.0);
+    steering + (input.clamp(-1.0, 1.0) - steering) * blend
+}
+
 fn integrate_jump(
     y: f32,
     vertical_speed: f32,
@@ -465,7 +524,12 @@ fn save_game(game: &Game) -> io::Result<()> {
 
 fn load_game(game: &mut Game) -> io::Result<()> {
     let snapshot = save::load_snapshot()?;
-    if snapshot.stage > OBJECTIVES.len()
+    let stage = if snapshot.stage == OBJECTIVES.len() {
+        0
+    } else {
+        snapshot.stage
+    };
+    if stage > OBJECTIVES.len()
         || !(-8.0..=24.0).contains(&snapshot.speed)
         || collides(
             Vec2::new(snapshot.player.x, snapshot.player.z),
@@ -487,9 +551,12 @@ fn load_game(game: &mut Game) -> io::Result<()> {
     game.car = snapshot.car;
     game.yaw = snapshot.yaw;
     game.speed = snapshot.speed;
+    game.steering = 0.0;
+    game.lateral_speed = 0.0;
+    game.player_moving = false;
     game.player_vertical_speed = 0.0;
     game.player_grounded = true;
-    game.stage = snapshot.stage;
+    game.stage = stage;
     game.credits = snapshot.credits;
     game.driving = snapshot.driving;
     game.bloom = snapshot.bloom;
@@ -577,6 +644,7 @@ fn controls(
         game.notice_timer = 3.0;
     }
     if game.paused {
+        game.player_moving = false;
         return;
     }
 
@@ -603,12 +671,16 @@ fn controls(
                     game.camera_yaw = game.yaw + std::f32::consts::PI + game.camera_orbit;
                     game.driving = false;
                     game.speed = 0.0;
+                    game.lateral_speed = 0.0;
+                    game.player_moving = false;
                     game.player_vertical_speed = 0.0;
                     game.player_grounded = true;
                 }
             }
         } else if game.player_grounded && game.player.distance(game.car) < 4.5 {
             game.driving = true;
+            game.lateral_speed = 0.0;
+            game.player_moving = false;
             game.camera_orbit = 0.0;
             game.player_vertical_speed = 0.0;
             game.player_grounded = true;
@@ -616,16 +688,24 @@ fn controls(
     }
 
     if game.driving {
-        let throttle =
-            (keys.pressed(KeyCode::KeyW) as i32 - keys.pressed(KeyCode::KeyS) as i32) as f32;
-        let steer =
+        game.player_moving = false;
+        let accelerating = keys.pressed(KeyCode::KeyW);
+        let braking = keys.pressed(KeyCode::KeyS);
+        let steer_input =
             (keys.pressed(KeyCode::KeyA) as i32 - keys.pressed(KeyCode::KeyD) as i32) as f32;
-        game.speed = (game.speed + throttle * 14.0 * dt).clamp(-8.0, 24.0);
-        game.speed *= (1.0 - 0.7 * dt).max(0.0);
+        game.speed = vehicle_speed_step(game.speed, accelerating, braking, dt);
+        game.steering = vehicle_steering_step(game.steering, steer_input, dt);
         let speed_factor = (game.speed / 8.0).clamp(-1.0, 1.0);
-        game.yaw += steer * speed_factor * 1.8 * dt;
+        game.yaw += game.steering * speed_factor * 1.8 * dt;
         let direction = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
-        let intended = Vec2::new(direction.x, direction.z) * game.speed * dt;
+        let right = Vec3::new(game.yaw.cos(), 0.0, -game.yaw.sin());
+        game.lateral_speed = (game.lateral_speed
+            + game.steering * game.speed.abs() * 0.06 * dt)
+            .clamp(-2.0, 2.0);
+        game.lateral_speed *= (1.0 - 1.8 * dt).max(0.0);
+        let intended = (Vec2::new(direction.x, direction.z) * game.speed
+            + Vec2::new(right.x, right.z) * game.lateral_speed)
+            * dt;
         let start = Vec2::new(game.car.x, game.car.z);
         let mut blockers = traffic.cars.clone();
         let separated = physics::separate_from_circles(start, PLAYER_CAR_RADIUS, &blockers);
@@ -637,6 +717,7 @@ fn controls(
         });
         if moved.distance(start) + 0.02 < intended.length() {
             game.speed *= 0.28;
+            game.lateral_speed *= 0.25;
         }
         game.car.x = moved.x;
         game.car.z = moved.y;
@@ -665,6 +746,11 @@ fn controls(
         });
         game.player.x = moved.x;
         game.player.z = moved.y;
+        let movement = Vec3::new(moved.x - start.x, 0.0, moved.y - start.y);
+        game.player_moving = movement.length_squared() > 1.0e-6;
+        if let Some(yaw) = facing_yaw(movement) {
+            game.player_facing_yaw = yaw;
+        }
         let (y, vertical_speed, grounded) = integrate_jump(
             game.player.y,
             game.player_vertical_speed,
@@ -678,10 +764,14 @@ fn controls(
     }
     if game.stage < OBJECTIVES.len() {
         let position = if game.driving { game.car } else { game.player };
-        let target = OBJECTIVES[game.stage];
+        let target = mission_target(game.stage, game.credits);
         if Vec2::new(position.x - target.x, position.z - target.z).length() < 4.0 {
-            game.stage += 1;
             game.credits += 100;
+            if game.stage + 1 == OBJECTIVES.len() {
+                game.stage = 0;
+            } else {
+                game.stage += 1;
+            }
         }
     }
 
@@ -735,8 +825,13 @@ fn update_world(
     >,
     mut commands: Commands,
 ) {
+    let elapsed_secs = time.elapsed_secs();
     for (mut transform, mut visibility) in &mut players {
         transform.translation = game.player;
+        if game.player_moving && !game.driving {
+            transform.translation.y += (elapsed_secs * 9.0).sin() * 0.045;
+        }
+        transform.rotation = Quat::from_rotation_y(game.player_facing_yaw);
         *visibility = if game.driving {
             Visibility::Hidden
         } else {
@@ -747,10 +842,9 @@ fn update_world(
         transform.translation = game.car;
         transform.rotation = Quat::from_rotation_y(game.yaw);
     }
-    let elapsed_secs = time.elapsed_secs();
     for (mut transform, mut visibility, mut light) in &mut markers {
         if game.stage < OBJECTIVES.len() {
-            transform.translation = OBJECTIVES[game.stage];
+            transform.translation = mission_target(game.stage, game.credits);
             transform.scale = mission_marker_scale(elapsed_secs);
             light.intensity = mission_marker_light_intensity(elapsed_secs);
             *visibility = Visibility::Visible;
@@ -797,10 +891,11 @@ fn update_hud(
     }
     let position = if game.driving { game.car } else { game.player };
     let objective = if game.stage < OBJECTIVES.len() {
-        let target = OBJECTIVES[game.stage];
+        let target = mission_target(game.stage, game.credits);
         let distance = Vec2::new(position.x - target.x, position.z - target.z).length();
         format!(
-            "Маршрут «Три маяка»: точка {}/{} • {:.0} м",
+            "Маршрут «{}»: точка {}/{} • {:.0} м",
+            mission_name(game.credits),
             game.stage + 1,
             OBJECTIVES.len(),
             distance
@@ -943,5 +1038,43 @@ mod tests {
             assert!(scale.y <= 2.6 * (1.0 + MISSION_MARKER_PULSE));
             assert!((340.0..=1_100.0).contains(&intensity));
         }
+    }
+
+    #[test]
+    fn missions_alternate_routes_every_300_credits() {
+        assert_eq!(mission_target(0, 0), OBJECTIVES[0]);
+        assert_eq!(mission_target(1, 299), OBJECTIVES[1]);
+        assert_eq!(mission_target(0, 300), ALTERNATE_OBJECTIVES[0]);
+        assert_eq!(mission_target(0, 600), OBJECTIVES[0]);
+        assert_ne!(mission_name(0), mission_name(300));
+    }
+
+    #[test]
+    fn braking_reaches_zero_before_reverse() {
+        let moving = vehicle_speed_step(12.0, false, true, 0.25);
+        assert!(moving < 12.0 && moving > 0.0);
+        let stopped = vehicle_speed_step(moving, false, true, 1.0);
+        assert_eq!(stopped, 0.0);
+        let reversing = vehicle_speed_step(stopped, false, true, 0.1);
+        assert!(reversing < 0.0);
+    }
+
+    #[test]
+    fn steering_changes_smoothly_toward_input() {
+        let first = vehicle_steering_step(0.0, 1.0, 0.05);
+        let second = vehicle_steering_step(first, 1.0, 0.05);
+        assert!(first > 0.0 && first < 1.0);
+        assert!(second > first && second < 1.0);
+    }
+
+    #[test]
+    fn player_facing_yaw_matches_forward_backward_and_rightward_motion() {
+        let forward = facing_yaw(Vec3::NEG_Z).unwrap();
+        let backward = facing_yaw(Vec3::Z).unwrap();
+        let right = facing_yaw(Vec3::X).unwrap();
+        assert!((forward - std::f32::consts::PI).abs() < 1.0e-5);
+        assert!(backward.abs() < 1.0e-5);
+        assert!((right - std::f32::consts::FRAC_PI_2).abs() < 1.0e-5);
+        assert_eq!(facing_yaw(Vec3::ZERO), None);
     }
 }
