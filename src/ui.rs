@@ -99,7 +99,13 @@ pub fn compose_hud(
     };
     format!(
         "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • E: машина/выход • F5: сохранить • F9: загрузить\n{}",
-        objective, credits, wanted_status(state), interaction, speed, mouse_hint, notice
+        objective,
+        credits,
+        wanted_status(state),
+        interaction,
+        speed,
+        mouse_hint,
+        notice
     )
 }
 
