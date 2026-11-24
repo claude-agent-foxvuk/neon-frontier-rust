@@ -29,9 +29,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Test
-        run: cargo test
+        run: cargo test --release --locked
       - name: Build release
-        run: cargo build --release
+        run: cargo build --release --locked
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
