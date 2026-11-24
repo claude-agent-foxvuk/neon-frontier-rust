@@ -111,6 +111,7 @@ struct Citizen {
 #[derive(Resource)]
 pub struct PlayerProbe {
     pub position: Vec3,
+    pub vehicle_position: Vec3,
     pub forward: Vec3,
     pub in_vehicle: bool,
     pub punch: bool,
@@ -121,6 +122,7 @@ impl Default for PlayerProbe {
     fn default() -> Self {
         Self {
             position: Vec3::ZERO,
+            vehicle_position: Vec3::ZERO,
             forward: Vec3::NEG_Z,
             in_vehicle: false,
             punch: false,
@@ -656,6 +658,8 @@ fn traffic_obstacle_ahead(
     baseline: Vec2,
     forward: Vec2,
     player: Vec2,
+    vehicle: Option<Vec2>,
+    in_vehicle: bool,
     car_positions: &[Vec3],
     car_index: usize,
 ) -> bool {
@@ -666,6 +670,7 @@ fn traffic_obstacle_ahead(
         ahead > 0.0 && ahead < CAR_BRAKE_DISTANCE && relative.dot(side).abs() < CAR_LANE_GAP
     };
     blocks_path(player)
+        || (!in_vehicle && vehicle.map_or(false, |position| blocks_path(position)))
         || car_positions.iter().enumerate().any(|(other, position)| {
             other != car_index && blocks_path(Vec2::new(position.x, position.z))
         })
@@ -741,6 +746,8 @@ fn simulate_city_life(
     let now = time.elapsed_secs();
     let player = probe.position;
     let player_flat = Vec2::new(player.x, player.z);
+    let parked_vehicle = (!probe.in_vehicle && probe.vehicle_position != Vec3::ZERO)
+        .then_some(Vec2::new(probe.vehicle_position.x, probe.vehicle_position.z));
     let player_radius = if probe.in_vehicle {
         CAR_BODY_RADIUS
     } else {
@@ -773,9 +780,20 @@ fn simulate_city_life(
         let baseline = current - side * car.lane_offset;
         let road_center = (baseline.dot(side) / ROAD_SPACING).round() * ROAD_SPACING;
         let blocked_ahead =
-            traffic_obstacle_ahead(baseline, forward, player_flat, &car_positions, index);
+            traffic_obstacle_ahead(
+                baseline,
+                forward,
+                player_flat,
+                parked_vehicle,
+                probe.in_vehicle,
+                &car_positions,
+                index,
+            );
         let blocks_movement = |point: Vec2| {
             point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
+                || parked_vehicle.map_or(false, |vehicle| {
+                    point.distance(vehicle) < CAR_BODY_RADIUS * 2.0
+                })
                 || car_positions.iter().enumerate().any(|(other, position)| {
                     if other == index {
                         return false;
