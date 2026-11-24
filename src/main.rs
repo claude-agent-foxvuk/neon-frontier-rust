@@ -1,5 +1,6 @@
 mod city_life;
 mod save;
+mod ui;
 
 use bevy::{
     camera::Hdr,
@@ -15,7 +16,6 @@ const WORLD_EDGE: f32 = 165.0;
 const ROAD_SPACING: f32 = 48.0;
 const BUILDING_HALF: f32 = 14.0;
 const MOUSE_SENSITIVITY: f32 = 0.0035;
-const MAIN_MENU_TEXT: &str = "NEON FRONTIER\n\nOPEN-WORLD ACTION • WINDOWS 11\n\nНажми Enter или ЛКМ, чтобы начать\nWASD — движение / газ • Shift — бег\nE — сесть в машину / выйти\nB — Bloom • F5 — сохранить • F9 — загрузить\n\nСделано FoxVuk и Claude Opus 5.5";
 
 #[derive(Component)]
 struct PlayerVisual;
@@ -25,9 +25,6 @@ struct CarVisual;
 
 #[derive(Component)]
 struct FollowCamera;
-
-#[derive(Component)]
-struct Hud;
 
 #[derive(Component)]
 struct MissionMarker;
@@ -216,7 +213,7 @@ fn setup(
             left: px(14),
             ..default()
         },
-        Hud,
+        ui::Hud,
     ));
 }
 
@@ -513,10 +510,10 @@ fn update_world(
     }
 }
 
-fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<Hud>>) {
+fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<ui::Hud>>) {
     if !game.started {
         for mut text in &mut labels {
-            text.0 = MAIN_MENU_TEXT.to_string();
+            text.0 = ui::MAIN_MENU_TEXT.to_string();
         }
         return;
     }
@@ -561,23 +558,23 @@ fn update_hud(game: Res<Game>, mut labels: Query<&mut Text, With<Hud>>) {
     } else {
         "ЛКМ: захватить мышь и управлять камерой"
     };
+    let content = ui::compose_hud(
+        &objective,
+        game.credits,
+        state,
+        interaction,
+        &speed,
+        mouse_hint,
+        &game.notice,
+    );
     for mut text in &mut labels {
-        text.0 = format!(
-            "NEON FRONTIER • ранняя версия\n{}\nКредиты: {}\n{}\n{}\n{}\nWASD: движение/газ • Shift: бег\n{}\nB: bloom • F5: сохранить • F9: загрузить\n{}",
-            objective, game.credits, state, interaction, speed, mouse_hint, game.notice
-        );
+        text.0 = content.clone();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn main_menu_shows_start_instructions_and_requested_credit() {
-        assert!(MAIN_MENU_TEXT.contains("Нажми Enter"));
-        assert!(MAIN_MENU_TEXT.contains("Сделано FoxVuk и Claude Opus 5.5"));
-    }
 
     #[test]
     fn building_collision_and_clear_road() {
