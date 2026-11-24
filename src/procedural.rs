@@ -54,11 +54,14 @@ fn noise(x: u32, y: u32, salt: u32) -> u8 {
 fn asphalt_pixels() -> Vec<u8> {
     pixels(|x, y| {
         let grain = noise(x, y, 7) as i16 - 15;
-        let fleck = if noise(x / 3, y / 3, 19) > 26 { 10 } else { 0 };
+        let broad = noise(x / 8, y / 8, 101) as i16 - 15;
+        let aggregate = if noise(x / 2, y / 2, 19) > 27 { 18 } else { 0 };
+        let repair = if noise(x / 16, y / 16, 127) > 29 { 12 } else { 0 };
+        let shade = grain * 2 + broad * 2 + aggregate + repair;
         [
-            (37_i16 + grain + fleck).clamp(0, 255) as u8,
-            (46_i16 + grain + fleck).clamp(0, 255) as u8,
-            (59_i16 + grain + fleck).clamp(0, 255) as u8,
+            (35_i16 + shade).clamp(0, 255) as u8,
+            (43_i16 + shade).clamp(0, 255) as u8,
+            (53_i16 + shade).clamp(0, 255) as u8,
             255,
         ]
     })
@@ -68,13 +71,15 @@ fn pavement_pixels() -> Vec<u8> {
     pixels(|x, y| {
         let joint = x % 32 < 2 || y % 24 < 2;
         let grain = noise(x, y, 31) as i16 - 15;
+        let slab = ((x / 32 + (y / 24) * 3) % 2) as i16 * 9;
+        let grit = if noise(x / 2, y / 2, 137) > 28 { 13 } else { 0 };
         if joint {
-            [46, 59, 68, 255]
+            [39, 50, 58, 255]
         } else {
             [
-                (103_i16 + grain).clamp(0, 255) as u8,
-                (118_i16 + grain).clamp(0, 255) as u8,
-                (126_i16 + grain).clamp(0, 255) as u8,
+                (96_i16 + grain + slab + grit).clamp(0, 255) as u8,
+                (111_i16 + grain + slab + grit).clamp(0, 255) as u8,
+                (120_i16 + grain + slab + grit).clamp(0, 255) as u8,
                 255,
             ]
         }
@@ -87,20 +92,29 @@ fn facade_pixels() -> Vec<u8> {
         let local_y = y % 24;
         let window = (5..27).contains(&local_x) && (5..20).contains(&local_y);
         if window {
-            let lit = noise(x / 32, y / 24, 53) > 18;
-            if lit {
-                [162, 127, 83, 255]
+            let variation = noise(x / 32, y / 24, 53);
+            if variation > 18 {
+                let glow = variation as i16 / 3;
+                [
+                    (154_i16 + glow).clamp(0, 255) as u8,
+                    (112_i16 + glow / 2).clamp(0, 255) as u8,
+                    76,
+                    255,
+                ]
             } else {
-                [23, 43, 61, 255]
+                [20, 37, 53, 255]
             }
         } else if local_x == 4 || local_x == 27 || local_y == 4 || local_y == 20 {
-            [51, 72, 87, 255]
+            [43, 62, 74, 255]
         } else {
             let grain = noise(x, y, 71) as i16 - 15;
+            let weathering = if noise(x / 4, y / 4, 149) > 26 { -13 } else { 0 };
+            let groove = if local_x == 0 || local_x == 31 { -9 } else { 0 };
+            let detail = grain * 2 + weathering + groove;
             [
-                (75_i16 + grain).clamp(0, 255) as u8,
-                (91_i16 + grain).clamp(0, 255) as u8,
-                (107_i16 + grain).clamp(0, 255) as u8,
+                (75_i16 + detail).clamp(0, 255) as u8,
+                (90_i16 + detail).clamp(0, 255) as u8,
+                (105_i16 + detail).clamp(0, 255) as u8,
                 255,
             ]
         }
@@ -110,10 +124,12 @@ fn facade_pixels() -> Vec<u8> {
 fn ground_pixels() -> Vec<u8> {
     pixels(|x, y| {
         let variation = noise(x, y, 89) as i16 - 15;
+        let patch = noise(x / 8, y / 8, 163) as i16 - 15;
+        let detail = variation + patch / 2;
         [
-            (28_i16 + variation / 2).clamp(0, 255) as u8,
-            (70_i16 + variation).clamp(0, 255) as u8,
-            (57_i16 + variation / 2).clamp(0, 255) as u8,
+            (28_i16 + detail / 2).clamp(0, 255) as u8,
+            (70_i16 + detail).clamp(0, 255) as u8,
+            (57_i16 + detail / 2).clamp(0, 255) as u8,
             255,
         ]
     })
@@ -140,5 +156,7 @@ mod tests {
         assert_eq!(asphalt, asphalt_pixels());
         assert_ne!(asphalt, pavement_pixels());
         assert_ne!(facade_pixels(), ground_pixels());
+        assert!(asphalt.chunks_exact(4).any(|pixel| pixel[0] > 50));
+        assert!(asphalt.chunks_exact(4).any(|pixel| pixel[0] < 25));
     }
 }
