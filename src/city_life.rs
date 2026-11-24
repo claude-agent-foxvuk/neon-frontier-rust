@@ -643,8 +643,7 @@ fn police_line_of_sight_clear(start: Vec2, end: Vec2) -> bool {
 }
 
 fn can_police_shoot(distance: f32, line_of_sight_clear: bool) -> bool {
-    line_of_sight_clear
-        && (POLICE_SHOT_MIN_DISTANCE..=POLICE_SHOT_MAX_DISTANCE).contains(&distance)
+    line_of_sight_clear && (POLICE_SHOT_MIN_DISTANCE..=POLICE_SHOT_MAX_DISTANCE).contains(&distance)
 }
 
 fn damage_player(probe: &mut PlayerProbe, damage: f32) {
@@ -703,11 +702,19 @@ fn simulate_city_life(
     mut wanted: ResMut<WantedState>,
     mut traffic: Query<
         (&mut Transform, &mut TrafficCar),
-        (Without<Citizen>, Without<PolicePatrol>, Without<FootOfficer>),
+        (
+            Without<Citizen>,
+            Without<PolicePatrol>,
+            Without<FootOfficer>,
+        ),
     >,
     mut citizens: Query<
         (&mut Transform, &mut Citizen),
-        (Without<TrafficCar>, Without<PolicePatrol>, Without<FootOfficer>),
+        (
+            Without<TrafficCar>,
+            Without<PolicePatrol>,
+            Without<FootOfficer>,
+        ),
     >,
     mut patrols: Query<
         (&mut Transform, &PolicePatrol),
@@ -719,7 +726,12 @@ fn simulate_city_life(
     >,
     mut muzzle_flashes: Query<
         (&mut Visibility, &mut OfficerMuzzleFlash),
-        (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>, Without<FootOfficer>),
+        (
+            Without<TrafficCar>,
+            Without<Citizen>,
+            Without<PolicePatrol>,
+            Without<FootOfficer>,
+        ),
     >,
 ) {
     let dt = time.delta_secs().min(0.05);
@@ -760,13 +772,8 @@ fn simulate_city_life(
         let current = Vec2::new(transform.translation.x, transform.translation.z);
         let baseline = current - side * car.lane_offset;
         let road_center = (baseline.dot(side) / ROAD_SPACING).round() * ROAD_SPACING;
-        let blocked_ahead = traffic_obstacle_ahead(
-            baseline,
-            forward,
-            player_flat,
-            &car_positions,
-            index,
-        );
+        let blocked_ahead =
+            traffic_obstacle_ahead(baseline, forward, player_flat, &car_positions, index);
         let blocks_movement = |point: Vec2| {
             point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
                 || car_positions.iter().enumerate().any(|(other, position)| {
@@ -800,11 +807,9 @@ fn simulate_city_life(
             let lateral_step = (car.avoid_offset - car.lane_offset)
                 .clamp(-car.speed.abs() * dt, car.speed.abs() * dt);
             let lateral_target = current + side * lateral_step;
-            let shifted = crate::physics::move_with_slide(
-                current,
-                side * lateral_step,
-                |point| city_collision(point, CAR_BODY_RADIUS) || blocks_movement(point),
-            );
+            let shifted = crate::physics::move_with_slide(current, side * lateral_step, |point| {
+                city_collision(point, CAR_BODY_RADIUS) || blocks_movement(point)
+            });
             let lateral_clear = shifted.distance(lateral_target) < 0.05;
             car.lane_offset += (shifted - current).dot(side);
             let mut candidate = shifted;
@@ -1052,11 +1057,9 @@ fn simulate_city_life(
             next = crate::physics::move_with_slide(position, movement, |point| {
                 city_collision(point, OFFICER_BODY_RADIUS)
                     || point.distance(player_flat) < OFFICER_BODY_RADIUS + player_radius
-                    || blockers
-                        .iter()
-                        .any(|center| {
-                            center.distance(point) < CAR_BODY_RADIUS + OFFICER_BODY_RADIUS
-                        })
+                    || blockers.iter().any(|center| {
+                        center.distance(point) < CAR_BODY_RADIUS + OFFICER_BODY_RADIUS
+                    })
             });
         }
         transform.translation.x = next.x;
@@ -1154,28 +1157,18 @@ mod tests {
     fn traffic_chooses_the_clear_adjacent_side() {
         let current = Vec2::new(0.0, CAR_LANE_OFFSET);
         let side = Vec2::Y;
-        let offset = choose_safe_traffic_offset(
-            current,
-            current,
-            side,
-            0.0,
-            10.0,
-            |point| point.y > current.y + 0.05,
-        );
+        let offset = choose_safe_traffic_offset(current, current, side, 0.0, 10.0, |point| {
+            point.y > current.y + 0.05
+        });
         assert_eq!(offset, Some(-CAR_PASSING_OFFSET));
     }
 
     #[test]
     fn traffic_brakes_when_both_sides_are_blocked() {
         let current = Vec2::ZERO;
-        let offset = choose_safe_traffic_offset(
-            current,
-            current,
-            Vec2::Y,
-            0.0,
-            10.0,
-            |point| point.y.abs() > 0.05,
-        );
+        let offset = choose_safe_traffic_offset(current, current, Vec2::Y, 0.0, 10.0, |point| {
+            point.y.abs() > 0.05
+        });
         assert_eq!(offset, None);
     }
 
@@ -1183,15 +1176,9 @@ mod tests {
     fn traffic_avoidance_stays_inside_the_road_width() {
         let current = Vec2::new(0.0, CAR_LANE_OFFSET);
         let side = Vec2::Y;
-        let offset = choose_safe_traffic_offset(
-            current,
-            current,
-            side,
-            0.0,
-            ROAD_HALF_WIDTH,
-            |_| false,
-        )
-        .expect("the inner passing lane should fit");
+        let offset =
+            choose_safe_traffic_offset(current, current, side, 0.0, ROAD_HALF_WIDTH, |_| false)
+                .expect("the inner passing lane should fit");
         let target = current + side * offset;
         assert!((target.dot(side)).abs() + CAR_BODY_RADIUS <= ROAD_HALF_WIDTH);
     }
