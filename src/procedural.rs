@@ -44,9 +44,8 @@ fn make_texture(data: Vec<u8>) -> Image {
 }
 
 fn noise(x: u32, y: u32, salt: u32) -> u8 {
-    let mut value = x.wrapping_mul(1_103_515_245)
-        ^ y.wrapping_mul(12_345)
-        ^ salt.wrapping_mul(2_654_435_761);
+    let mut value =
+        x.wrapping_mul(1_103_515_245) ^ y.wrapping_mul(12_345) ^ salt.wrapping_mul(2_654_435_761);
     value ^= value >> 13;
     value = value.wrapping_mul(1_274_126_177);
     ((value ^ (value >> 16)) & 31) as u8
