@@ -56,7 +56,11 @@ fn asphalt_pixels() -> Vec<u8> {
         let grain = noise(x, y, 7) as i16 - 15;
         let broad = noise(x / 8, y / 8, 101) as i16 - 15;
         let aggregate = if noise(x / 2, y / 2, 19) > 27 { 18 } else { 0 };
-        let repair = if noise(x / 16, y / 16, 127) > 29 { 12 } else { 0 };
+        let repair = if noise(x / 16, y / 16, 127) > 29 {
+            12
+        } else {
+            0
+        };
         let shade = grain * 2 + broad * 2 + aggregate + repair;
         [
             (35_i16 + shade).clamp(0, 255) as u8,
@@ -108,7 +112,11 @@ fn facade_pixels() -> Vec<u8> {
             [43, 62, 74, 255]
         } else {
             let grain = noise(x, y, 71) as i16 - 15;
-            let weathering = if noise(x / 4, y / 4, 149) > 26 { -13 } else { 0 };
+            let weathering = if noise(x / 4, y / 4, 149) > 26 {
+                -13
+            } else {
+                0
+            };
             let groove = if local_x == 0 || local_x == 31 { -9 } else { 0 };
             let detail = grain * 2 + weathering + groove;
             [
