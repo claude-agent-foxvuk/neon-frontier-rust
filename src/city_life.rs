@@ -432,8 +432,10 @@ mod tests {
                 .iter()
                 .any(|(_, rotation)| *rotation == Quat::IDENTITY)
         );
-        assert!(windows.iter().any(|(_, rotation)| {
-            (rotation * Vec3::Z).distance(Vec3::X) < 1.0e-5
-        }));
+        assert!(
+            windows
+                .iter()
+                .any(|(_, rotation)| { (rotation * Vec3::Z).distance(Vec3::X) < 1.0e-5 })
+        );
     }
 }
