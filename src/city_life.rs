@@ -267,7 +267,8 @@ fn spawn_city_life(
         commands.spawn((
             Mesh3d(car_mesh.clone()),
             MeshMaterial3d(car_materials[(road + 1) % car_materials.len()].clone()),
-            Transform::from_translation(along_z).with_rotation(traffic_rotation(false, direction_z)),
+            Transform::from_translation(along_z)
+                .with_rotation(traffic_rotation(false, direction_z)),
             TrafficCar {
                 speed: 6.6 + (road % 2) as f32 * 1.4,
                 direction: direction_z,
@@ -402,12 +403,16 @@ fn spawn_city_life(
         commands.spawn((
             Mesh3d(lamp_arm_mesh.clone()),
             MeshMaterial3d(lamp_post_material.clone()),
-            Transform::from_translation(position + Vec3::Y * 6.0 + Vec3::new(-side_x * 0.42, 0.0, 0.0)),
+            Transform::from_translation(
+                position + Vec3::Y * 6.0 + Vec3::new(-side_x * 0.42, 0.0, 0.0),
+            ),
         ));
         commands.spawn((
             Mesh3d(lamp_head_mesh.clone()),
             MeshMaterial3d(bulb),
-            Transform::from_translation(position + Vec3::Y * 5.95 + Vec3::new(-side_x * 0.95, 0.0, 0.0)),
+            Transform::from_translation(
+                position + Vec3::Y * 5.95 + Vec3::new(-side_x * 0.95, 0.0, 0.0),
+            ),
         ));
     }
     for (index, position) in intersection_light_positions().into_iter().enumerate() {
