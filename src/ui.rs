@@ -9,7 +9,7 @@ pub fn hud_font() -> TextFont {
     TextFont {
         font: FontSource::families("'Segoe UI', Arial, sans-serif"),
         font_size: FontSize::Px(19.0),
-        ..default()
+        ..Default::default()
     }
 }
 
