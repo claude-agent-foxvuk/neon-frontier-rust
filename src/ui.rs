@@ -1,4 +1,4 @@
-use bevy::prelude::{Component, FontSize, FontSource, TextFont};
+use bevy::prelude::{Component, FontSize, FontSource, TextFont, Vec2};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuOption {
@@ -17,6 +17,11 @@ pub const IN_GAME_HELP: &str = "WASD — движение / газ • Shift —
 
 pub const SHORT_CREDITS: &str = "Сделано FoxVuk и Claude Opus 5.5";
 
+const MENU_TEXT_LEFT: f32 = 24.0;
+const MENU_TEXT_RIGHT: f32 = 540.0;
+const MENU_FIRST_ROW_TOP: f32 = 140.0;
+const MENU_ROW_HEIGHT: f32 = 24.0;
+
 #[derive(Component)]
 pub struct Hud;
 
@@ -34,6 +39,18 @@ fn option_label(option: MenuOption) -> &'static str {
         MenuOption::LoadGame => "Загрузить сохранение",
         MenuOption::Credits => "Кредитс",
     }
+}
+
+pub fn menu_index_at_cursor(position: Vec2) -> Option<usize> {
+    if !position.is_finite()
+        || position.x < MENU_TEXT_LEFT
+        || position.x > MENU_TEXT_RIGHT
+        || position.y < MENU_FIRST_ROW_TOP
+    {
+        return None;
+    }
+    let index = ((position.y - MENU_FIRST_ROW_TOP) / MENU_ROW_HEIGHT).floor() as usize;
+    (index < MENU_OPTIONS.len()).then_some(index)
 }
 
 pub fn main_menu_text(selected: usize, credits_open: bool, notice: &str) -> String {
@@ -121,6 +138,17 @@ mod tests {
         assert!(menu.contains("Кредитс"));
         assert!(menu.contains(SHORT_CREDITS));
         assert!(menu.contains("Enter"));
+    }
+
+    #[test]
+    fn menu_hit_testing_maps_each_row_and_ignores_other_areas() {
+        assert_eq!(menu_index_at_cursor(Vec2::new(30.0, 151.0)), Some(0));
+        assert_eq!(menu_index_at_cursor(Vec2::new(30.0, 175.0)), Some(1));
+        assert_eq!(menu_index_at_cursor(Vec2::new(30.0, 199.0)), Some(2));
+        assert_eq!(menu_index_at_cursor(Vec2::new(10.0, 151.0)), None);
+        assert_eq!(menu_index_at_cursor(Vec2::new(30.0, 139.0)), None);
+        assert_eq!(menu_index_at_cursor(Vec2::new(30.0, 212.0)), None);
+        assert_eq!(menu_index_at_cursor(Vec2::new(f32::NAN, 151.0)), None);
     }
 
     #[test]
