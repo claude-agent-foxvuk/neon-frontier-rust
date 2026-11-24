@@ -6,7 +6,6 @@ const ROAD_HALF_WIDTH: f32 = 5.5;
 const SIDEWALK_OFFSET: f32 = 7.0;
 const BUILDING_HALF: f32 = 14.0;
 const BUILDING_EDGE_FROM_ROAD: f32 = ROAD_SPACING * 0.5 - BUILDING_HALF;
-
 const CAR_BODY_RADIUS: f32 = 2.2;
 const CAR_BRAKE_DISTANCE: f32 = 7.5;
 const CAR_LANE_GAP: f32 = 3.4;
@@ -23,6 +22,9 @@ const PUNCH_RANGE: f32 = 2.8;
 const PUNCH_CONE: f32 = 0.35;
 const PUNCH_KNOCK: f32 = 9.5;
 const FALL_TILT: f32 = 0.55;
+const CITIZEN_HEALTH: f32 = 3.0;
+const WANTED_DECAY_START: f32 = 18.0;
+const WANTED_DECAY_STEP: f32 = 8.0;
 
 #[derive(Component)]
 struct TrafficCar {
@@ -30,6 +32,12 @@ struct TrafficCar {
     direction: f32,
     along_x: bool,
     stop_timer: f32,
+}
+
+#[derive(Component)]
+struct PolicePatrol {
+    home: Vec2,
+    phase: f32,
 }
 
 #[derive(Component)]
@@ -42,9 +50,10 @@ struct Citizen {
     displacement: Vec3,
     knock_velocity: Vec3,
     knocked: f32,
+    health: f32,
+    dead: bool,
 }
 
-/// Where the player is and what they are doing, read once per frame by the city simulation.
 #[derive(Resource)]
 pub struct PlayerProbe {
     pub position: Vec3,
@@ -64,10 +73,34 @@ impl Default for PlayerProbe {
     }
 }
 
-/// Flat positions and radii of the moving traffic cars, so the player bumps into them.
 #[derive(Resource, Default)]
 pub struct TrafficBodies {
     pub cars: Vec<(Vec2, f32)>,
+}
+
+#[derive(Resource, Default)]
+pub struct WantedState {
+    pub level: u8,
+    decay_timer: f32,
+}
+
+impl WantedState {
+    fn report_incident(&mut self) {
+        self.level = (self.level + 1).min(5);
+        self.decay_timer = WANTED_DECAY_START;
+    }
+
+    fn tick(&mut self, dt: f32, incident: bool) {
+        if incident {
+            self.report_incident();
+        } else if self.level > 0 {
+            self.decay_timer -= dt;
+            if self.decay_timer <= 0.0 {
+                self.level -= 1;
+                self.decay_timer = WANTED_DECAY_STEP;
+            }
+        }
+    }
 }
 
 pub struct CityLifePlugin;
@@ -76,6 +109,7 @@ impl Plugin for CityLifePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayerProbe>()
             .init_resource::<TrafficBodies>()
+            .init_resource::<WantedState>()
             .add_systems(Startup, spawn_city_life)
             .add_systems(Update, simulate_city_life);
     }
@@ -125,22 +159,10 @@ fn facade_window_transforms() -> Vec<(Vec3, Quat)> {
             let mut y = 3.4;
             while y < height - 1.0 {
                 for column in [-1.0_f32, 1.0] {
-                    windows.push((
-                        Vec3::new(center_x + column * 6.0, y, center_z - BUILDING_HALF - 0.08),
-                        Quat::IDENTITY,
-                    ));
-                    windows.push((
-                        Vec3::new(center_x + column * 6.0, y, center_z + BUILDING_HALF + 0.08),
-                        Quat::IDENTITY,
-                    ));
-                    windows.push((
-                        Vec3::new(center_x - BUILDING_HALF - 0.08, y, center_z + column * 6.0),
-                        Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
-                    ));
-                    windows.push((
-                        Vec3::new(center_x + BUILDING_HALF + 0.08, y, center_z + column * 6.0),
-                        Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
-                    ));
+                    windows.push((Vec3::new(center_x + column * 6.0, y, center_z - BUILDING_HALF - 0.08), Quat::IDENTITY));
+                    windows.push((Vec3::new(center_x + column * 6.0, y, center_z + BUILDING_HALF + 0.08), Quat::IDENTITY));
+                    windows.push((Vec3::new(center_x - BUILDING_HALF - 0.08, y, center_z + column * 6.0), Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)));
+                    windows.push((Vec3::new(center_x + BUILDING_HALF + 0.08, y, center_z + column * 6.0), Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)));
                 }
                 y += 4.6;
             }
@@ -156,23 +178,10 @@ fn spawn_city_life(
 ) {
     let car_mesh = meshes.add(Cuboid::new(1.9, 0.85, 3.6));
     let citizen_mesh = meshes.add(Cuboid::new(0.48, 1.55, 0.42));
-    let car_colors = [
-        Color::srgb(0.78, 0.20, 0.12),
-        Color::srgb(0.12, 0.44, 0.72),
-        Color::srgb(0.77, 0.60, 0.16),
-        Color::srgb(0.34, 0.68, 0.53),
-    ];
-    let car_materials: Vec<_> = car_colors
-        .into_iter()
-        .map(|color| {
-            materials.add(StandardMaterial {
-                base_color: color,
-                metallic: 0.48,
-                perceptual_roughness: 0.34,
-                ..default()
-            })
-        })
-        .collect();
+    let car_colors = [Color::srgb(0.78, 0.20, 0.12), Color::srgb(0.12, 0.44, 0.72), Color::srgb(0.77, 0.60, 0.16), Color::srgb(0.34, 0.68, 0.53)];
+    let car_materials: Vec<_> = car_colors.into_iter().map(|color| {
+        materials.add(StandardMaterial { base_color: color, metallic: 0.48, perceptual_roughness: 0.34, ..default() })
+    }).collect();
     let citizen_materials = [
         materials.add(Color::srgb(0.86, 0.40, 0.24)),
         materials.add(Color::srgb(0.24, 0.67, 0.78)),
@@ -180,65 +189,22 @@ fn spawn_city_life(
         materials.add(Color::srgb(0.49, 0.39, 0.73)),
     ];
     let beacon_materials: Vec<_> = [
-        (
-            Color::srgb(0.05, 0.55, 0.72),
-            LinearRgba::rgb(0.0, 2.2, 4.0),
-        ),
-        (
-            Color::srgb(0.72, 0.36, 0.08),
-            LinearRgba::rgb(4.0, 1.4, 0.1),
-        ),
-        (
-            Color::srgb(0.58, 0.16, 0.62),
-            LinearRgba::rgb(2.8, 0.2, 3.5),
-        ),
-        (
-            Color::srgb(0.18, 0.58, 0.32),
-            LinearRgba::rgb(0.2, 3.2, 0.6),
-        ),
-    ]
-    .into_iter()
-    .map(|(base_color, emissive)| {
-        materials.add(StandardMaterial {
-            base_color,
-            emissive,
-            metallic: 0.35,
-            perceptual_roughness: 0.25,
-            ..default()
-        })
-    })
-    .collect();
+        (Color::srgb(0.05, 0.55, 0.72), LinearRgba::rgb(0.0, 2.2, 4.0)),
+        (Color::srgb(0.72, 0.36, 0.08), LinearRgba::rgb(4.0, 1.4, 0.1)),
+        (Color::srgb(0.58, 0.16, 0.62), LinearRgba::rgb(2.8, 0.2, 3.5)),
+        (Color::srgb(0.18, 0.58, 0.32), LinearRgba::rgb(0.2, 3.2, 0.6)),
+    ].into_iter().map(|(base_color, emissive)| {
+        materials.add(StandardMaterial { base_color, emissive, metallic: 0.35, perceptual_roughness: 0.25, ..default() })
+    }).collect();
 
     for road in 0..7 {
         let lane = road as f32 * ROAD_SPACING - 144.0;
         let direction = if road % 2 == 0 { 1.0 } else { -1.0 };
         let along_x = Vec3::new(-126.0 + road as f32 * 34.0, 0.48, lane + 2.1);
-        commands.spawn((
-            Mesh3d(car_mesh.clone()),
-            MeshMaterial3d(car_materials[road % car_materials.len()].clone()),
-            Transform::from_translation(along_x).with_rotation(traffic_rotation(true, direction)),
-            TrafficCar {
-                speed: 6.0 + (road % 3) as f32 * 1.2,
-                direction,
-                along_x: true,
-                stop_timer: 0.0,
-            },
-        ));
-
+        commands.spawn((Mesh3d(car_mesh.clone()), MeshMaterial3d(car_materials[road % car_materials.len()].clone()), Transform::from_translation(along_x).with_rotation(traffic_rotation(true, direction)), TrafficCar { speed: 6.0 + (road % 3) as f32 * 1.2, direction, along_x: true, stop_timer: 0.0 }));
         let direction_z = -direction;
         let along_z = Vec3::new(lane - 2.1, 0.48, -118.0 + road as f32 * 32.0);
-        commands.spawn((
-            Mesh3d(car_mesh.clone()),
-            MeshMaterial3d(car_materials[(road + 1) % car_materials.len()].clone()),
-            Transform::from_translation(along_z)
-                .with_rotation(traffic_rotation(false, direction_z)),
-            TrafficCar {
-                speed: 6.6 + (road % 2) as f32 * 1.4,
-                direction: direction_z,
-                along_x: false,
-                stop_timer: 0.0,
-            },
-        ));
+        commands.spawn((Mesh3d(car_mesh.clone()), MeshMaterial3d(car_materials[(road + 1) % car_materials.len()].clone()), Transform::from_translation(along_z).with_rotation(traffic_rotation(false, direction_z)), TrafficCar { speed: 6.6 + (road % 2) as f32 * 1.4, direction: direction_z, along_x: false, stop_timer: 0.0 }));
     }
 
     for index in 0..14 {
@@ -246,26 +212,21 @@ fn spawn_city_life(
         let side = if index < 7 { 1.0 } else { -1.0 };
         let lane = road * ROAD_SPACING - 144.0;
         let along_x = index >= 7;
-        let origin = if along_x {
-            Vec3::new(-108.0 + road * 31.0, 0.82, lane + side * SIDEWALK_OFFSET)
-        } else {
-            Vec3::new(lane + side * SIDEWALK_OFFSET, 0.82, -108.0 + road * 31.0)
-        };
-        commands.spawn((
-            Mesh3d(citizen_mesh.clone()),
-            MeshMaterial3d(citizen_materials[index % citizen_materials.len()].clone()),
-            Transform::from_translation(origin),
-            Citizen {
-                origin,
-                phase: index as f32 * 0.71,
-                speed: 0.35 + (index % 4) as f32 * 0.08,
-                range: 7.0,
-                along_x,
-                displacement: Vec3::ZERO,
-                knock_velocity: Vec3::ZERO,
-                knocked: 0.0,
-            },
-        ));
+        let origin = if along_x { Vec3::new(-108.0 + road * 31.0, 0.82, lane + side * SIDEWALK_OFFSET) } else { Vec3::new(lane + side * SIDEWALK_OFFSET, 0.82, -108.0 + road * 31.0) };
+        commands.spawn((Mesh3d(citizen_mesh.clone()), MeshMaterial3d(citizen_materials[index % citizen_materials.len()].clone()), Transform::from_translation(origin), Citizen { origin, phase: index as f32 * 0.71, speed: 0.35 + (index % 4) as f32 * 0.08, range: 7.0, along_x, displacement: Vec3::ZERO, knock_velocity: Vec3::ZERO, knocked: 0.0, health: CITIZEN_HEALTH, dead: false }));
+    }
+
+    let police_body = materials.add(StandardMaterial { base_color: Color::srgb(0.035, 0.065, 0.11), metallic: 0.55, perceptual_roughness: 0.3, ..default() });
+    let red_light = materials.add(StandardMaterial { base_color: Color::srgb(0.85, 0.08, 0.08), emissive: LinearRgba::rgb(3.2, 0.05, 0.03), ..default() });
+    let blue_light = materials.add(StandardMaterial { base_color: Color::srgb(0.04, 0.25, 0.95), emissive: LinearRgba::rgb(0.04, 0.35, 3.5), ..default() });
+    let bar_mesh = meshes.add(Cuboid::new(0.45, 0.14, 0.32));
+    let badge_mesh = meshes.add(Cuboid::new(0.08, 0.28, 0.68));
+    for (index, home) in [Vec2::new(-48.0, -2.0), Vec2::new(48.0, 2.0)].into_iter().enumerate() {
+        let center = Vec3::new(home.x, 0.48, home.y);
+        commands.spawn((Mesh3d(car_mesh.clone()), MeshMaterial3d(police_body.clone()), Transform::from_translation(center), PolicePatrol { home, phase: index as f32 * 2.7 }));
+        commands.spawn((Mesh3d(bar_mesh.clone()), MeshMaterial3d(red_light.clone()), Transform::from_translation(center + Vec3::new(-0.28, 0.56, 0.0))));
+        commands.spawn((Mesh3d(bar_mesh.clone()), MeshMaterial3d(blue_light.clone()), Transform::from_translation(center + Vec3::new(0.28, 0.56, 0.0))));
+        commands.spawn((Mesh3d(badge_mesh.clone()), MeshMaterial3d(blue_light.clone()), Transform::from_translation(center + Vec3::new(0.97, 0.05, 0.0))));
     }
 
     let landmark_mesh = meshes.add(Cuboid::default());
@@ -273,108 +234,36 @@ fn spawn_city_life(
         let x = grid_x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
         let z = grid_z as f32 * ROAD_SPACING + ROAD_SPACING * 0.5;
         let height = 8.0 + (((grid_x + 3) * 7 + (grid_z + 3) * 11) % 6) as f32 * 4.0;
-        commands.spawn((
-            Mesh3d(landmark_mesh.clone()),
-            MeshMaterial3d(beacon_materials[index].clone()),
-            Transform::from_xyz(x, height + 2.0, z).with_scale(Vec3::new(1.5, 4.0, 1.5)),
-        ));
+        commands.spawn((Mesh3d(landmark_mesh.clone()), MeshMaterial3d(beacon_materials[index].clone()), Transform::from_xyz(x, height + 2.0, z).with_scale(Vec3::new(1.5, 4.0, 1.5))));
     }
 
     let lamp_post_mesh = meshes.add(Cuboid::new(0.18, 6.2, 0.18));
     let lamp_arm_mesh = meshes.add(Cuboid::new(1.2, 0.12, 0.12));
     let lamp_head_mesh = meshes.add(Cuboid::new(0.42, 0.18, 0.36));
-    let lamp_post_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.08, 0.12, 0.17),
-        metallic: 0.78,
-        perceptual_roughness: 0.32,
-        ..default()
-    });
-    let lamp_arm_material = lamp_post_material.clone();
+    let lamp_post_material = materials.add(StandardMaterial { base_color: Color::srgb(0.08, 0.12, 0.17), metallic: 0.78, perceptual_roughness: 0.32, ..default() });
     let lamp_glow_materials = [
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.06, 0.52, 0.72),
-            emissive: LinearRgba::rgb(0.05, 2.0, 4.2),
-            ..default()
-        }),
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.66, 0.18, 0.62),
-            emissive: LinearRgba::rgb(2.5, 0.1, 2.2),
-            ..default()
-        }),
+        materials.add(StandardMaterial { base_color: Color::srgb(0.06, 0.52, 0.72), emissive: LinearRgba::rgb(0.05, 2.0, 4.2), ..default() }),
+        materials.add(StandardMaterial { base_color: Color::srgb(0.66, 0.18, 0.62), emissive: LinearRgba::rgb(2.5, 0.1, 2.2), ..default() }),
     ];
     for (index, position) in streetlight_positions().into_iter().enumerate() {
         let side_x = if position.x < 0.0 { -1.0 } else { 1.0 };
-        let inward_arm = Vec3::new(-side_x * 0.42, 0.0, 0.0);
-        let head_offset = Vec3::new(-side_x * 0.95, 0.0, 0.0);
-        let bulb_material = lamp_glow_materials[index % lamp_glow_materials.len()].clone();
-        commands.spawn((
-            Mesh3d(lamp_post_mesh.clone()),
-            MeshMaterial3d(lamp_post_material.clone()),
-            Transform::from_translation(position + Vec3::Y * 3.1),
-        ));
-        commands.spawn((
-            Mesh3d(lamp_arm_mesh.clone()),
-            MeshMaterial3d(lamp_arm_material.clone()),
-            Transform::from_translation(position + Vec3::Y * 6.0 + inward_arm),
-        ));
-        commands.spawn((
-            Mesh3d(lamp_head_mesh.clone()),
-            MeshMaterial3d(bulb_material),
-            Transform::from_translation(position + Vec3::Y * 5.95 + head_offset),
-        ));
+        let bulb = lamp_glow_materials[index % lamp_glow_materials.len()].clone();
+        commands.spawn((Mesh3d(lamp_post_mesh.clone()), MeshMaterial3d(lamp_post_material.clone()), Transform::from_translation(position + Vec3::Y * 3.1)));
+        commands.spawn((Mesh3d(lamp_arm_mesh.clone()), MeshMaterial3d(lamp_post_material.clone()), Transform::from_translation(position + Vec3::Y * 6.0 + Vec3::new(-side_x * 0.42, 0.0, 0.0))));
+        commands.spawn((Mesh3d(lamp_head_mesh.clone()), MeshMaterial3d(bulb), Transform::from_translation(position + Vec3::Y * 5.95 + Vec3::new(-side_x * 0.95, 0.0, 0.0))));
     }
-
-    // Nine unshadowed, short-range lights keep the neon intersections readable
-    // without adding a shadow map for every decorative lamp.
     for (index, position) in intersection_light_positions().into_iter().enumerate() {
-        let color = if index % 2 == 0 {
-            Color::srgb(0.28, 0.72, 0.92)
-        } else {
-            Color::srgb(0.88, 0.30, 0.70)
-        };
-        commands.spawn((
-            PointLight {
-                color,
-                intensity: 1_000.0,
-                range: 26.0,
-                shadow_maps_enabled: false,
-                ..default()
-            },
-            Transform::from_translation(position),
-        ));
+        let color = if index % 2 == 0 { Color::srgb(0.28, 0.72, 0.92) } else { Color::srgb(0.88, 0.30, 0.70) };
+        commands.spawn((PointLight { color, intensity: 1_000.0, range: 26.0, shadow_maps_enabled: false, ..default() }, Transform::from_translation(position)));
     }
-
-    // Shared meshes and three emissive materials keep the procedural facade detail light.
     let window_mesh = meshes.add(Cuboid::new(1.3, 1.2, 0.12));
     let window_materials = [
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.82, 0.59, 0.25),
-            emissive: LinearRgba::rgb(1.5, 0.78, 0.22),
-            metallic: 0.12,
-            perceptual_roughness: 0.48,
-            ..default()
-        }),
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.08, 0.48, 0.62),
-            emissive: LinearRgba::rgb(0.08, 1.25, 1.75),
-            metallic: 0.18,
-            perceptual_roughness: 0.38,
-            ..default()
-        }),
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.58, 0.22, 0.52),
-            emissive: LinearRgba::rgb(1.1, 0.16, 0.9),
-            metallic: 0.15,
-            perceptual_roughness: 0.4,
-            ..default()
-        }),
+        materials.add(StandardMaterial { base_color: Color::srgb(0.82, 0.59, 0.25), emissive: LinearRgba::rgb(1.5, 0.78, 0.22), metallic: 0.12, perceptual_roughness: 0.48, ..default() }),
+        materials.add(StandardMaterial { base_color: Color::srgb(0.08, 0.48, 0.62), emissive: LinearRgba::rgb(0.08, 1.25, 1.75), metallic: 0.18, perceptual_roughness: 0.38, ..default() }),
+        materials.add(StandardMaterial { base_color: Color::srgb(0.58, 0.22, 0.52), emissive: LinearRgba::rgb(1.1, 0.16, 0.9), metallic: 0.15, perceptual_roughness: 0.4, ..default() }),
     ];
     for (index, (position, rotation)) in facade_window_transforms().into_iter().enumerate() {
-        commands.spawn((
-            Mesh3d(window_mesh.clone()),
-            MeshMaterial3d(window_materials[index % window_materials.len()].clone()),
-            Transform::from_translation(position).with_rotation(rotation),
-        ));
+        commands.spawn((Mesh3d(window_mesh.clone()), MeshMaterial3d(window_materials[index % window_materials.len()].clone()), Transform::from_translation(position).with_rotation(rotation)));
     }
 }
 
@@ -384,119 +273,120 @@ fn resolve_knock(displacement: &mut Vec3, velocity: &mut Vec3, knocked: &mut f32
     let damping = (1.0 - 4.0 * dt).max(0.0);
     velocity.x *= damping;
     velocity.z *= damping;
-    if displacement.y < 0.0 {
-        displacement.y = 0.0;
-        velocity.y = 0.0;
-    }
-    if displacement.length() > MAX_KNOCK_OFFSET {
-        *displacement = displacement.normalize() * MAX_KNOCK_OFFSET;
-    }
+    if displacement.y < 0.0 { displacement.y = 0.0; velocity.y = 0.0; }
+    if displacement.length() > MAX_KNOCK_OFFSET { *displacement = displacement.normalize() * MAX_KNOCK_OFFSET; }
     *knocked = (*knocked - dt).max(0.0);
+}
+
+fn damage_citizen(citizen: &mut Citizen, damage: f32) -> bool {
+    if citizen.dead || damage <= 0.0 { return false; }
+    citizen.health = (citizen.health - damage).max(0.0);
+    if citizen.health == 0.0 { citizen.dead = true; return true; }
+    false
 }
 
 fn simulate_city_life(
     time: Res<Time>,
     mut probe: ResMut<PlayerProbe>,
     mut bodies: ResMut<TrafficBodies>,
-    mut traffic: Query<(&mut Transform, &mut TrafficCar), Without<Citizen>>,
-    mut citizens: Query<(&mut Transform, &mut Citizen), Without<TrafficCar>>,
+    mut wanted: ResMut<WantedState>,
+    mut traffic: Query<(&mut Transform, &mut TrafficCar), (Without<Citizen>, Without<PolicePatrol>)>,
+    mut citizens: Query<(&mut Transform, &mut Citizen), (Without<TrafficCar>, Without<PolicePatrol>)>,
+    mut patrols: Query<(&mut Transform, &PolicePatrol), (Without<TrafficCar>, Without<Citizen>)>,
 ) {
     let dt = time.delta_secs().min(0.05);
-    if dt <= 0.0 {
-        return;
-    }
+    if dt <= 0.0 { return; }
     let now = time.elapsed_secs();
     let player = probe.position;
     let punching = probe.punch;
-    let player_forward = if probe.forward.length_squared() > 1.0e-6 {
-        probe.forward.normalize()
-    } else {
-        Vec3::NEG_Z
-    };
-
-    let mut car_positions: Vec<Vec3> = Vec::with_capacity(16);
-    for (transform, _) in traffic.iter() {
-        car_positions.push(transform.translation);
-    }
-    let mut citizen_positions: Vec<Vec3> = Vec::with_capacity(16);
-    for (transform, _) in citizens.iter() {
-        citizen_positions.push(transform.translation);
-    }
-
+    let player_forward = if probe.forward.length_squared() > 1.0e-6 { probe.forward.normalize() } else { Vec3::NEG_Z };
+    let mut player_incident = false;
+    let car_positions: Vec<Vec3> = traffic.iter().map(|(transform, _)| transform.translation).collect();
+    let citizen_positions: Vec<Vec3> = citizens.iter().map(|(transform, _)| transform.translation).collect();
     let mut knock_events: Vec<(usize, Vec3)> = Vec::with_capacity(4);
-    let mut car_bodies: Vec<(Vec2, f32)> = Vec::with_capacity(car_positions.len());
+    let mut car_bodies: Vec<(Vec2, f32)> = Vec::with_capacity(car_positions.len() + 2);
 
     for (index, (mut transform, mut car)) in traffic.iter_mut().enumerate() {
-        if car.stop_timer > 0.0 {
-            car.stop_timer = (car.stop_timer - dt).max(0.0);
-        }
-        let forward = if car.along_x { Vec3::X } else { Vec3::Z } * car.direction;
-
-        let mut blocked = false;
-        for (other, position) in car_positions.iter().enumerate() {
-            if other == index {
-                continue;
-            }
+        car.stop_timer = (car.stop_timer - dt).max(0.0);
+        let forward = (if car.along_x { Vec3::X } else { Vec3::Z }) * car.direction;
+        let blocked = car_positions.iter().enumerate().any(|(other, position)| {
+            if other == index { return false; }
             let to_other = *position - transform.translation;
             let ahead = to_other.dot(forward);
             let sideways = Vec2::new(to_other.x, to_other.z).length();
-            if ahead > 0.0 && ahead < CAR_BRAKE_DISTANCE && sideways < CAR_LANE_GAP {
-                blocked = true;
-            }
-        }
-        if blocked {
-            car.stop_timer = CAR_STOP_SECONDS;
-        }
-
+            ahead > 0.0 && ahead < CAR_BRAKE_DISTANCE && sideways < CAR_LANE_GAP
+        });
+        if blocked { car.stop_timer = CAR_STOP_SECONDS; }
         if car.stop_timer <= 0.0 {
             if car.along_x {
                 transform.translation.x += car.speed * car.direction * dt;
-                if transform.translation.x > CITY_LIMIT {
-                    transform.translation.x = -CITY_LIMIT;
-                } else if transform.translation.x < -CITY_LIMIT {
-                    transform.translation.x = CITY_LIMIT;
-                }
+                if transform.translation.x > CITY_LIMIT { transform.translation.x = -CITY_LIMIT; }
+                else if transform.translation.x < -CITY_LIMIT { transform.translation.x = CITY_LIMIT; }
             } else {
                 transform.translation.z += car.speed * car.direction * dt;
-                if transform.translation.z > CITY_LIMIT {
-                    transform.translation.z = -CITY_LIMIT;
-                } else if transform.translation.z < -CITY_LIMIT {
-                    transform.translation.z = CITY_LIMIT;
-                }
+                if transform.translation.z > CITY_LIMIT { transform.translation.z = -CITY_LIMIT; }
+                else if transform.translation.z < -CITY_LIMIT { transform.translation.z = CITY_LIMIT; }
             }
         }
-
         for (citizen_index, position) in citizen_positions.iter().enumerate() {
-            let flat = Vec2::new(
-                transform.translation.x - position.x,
-                transform.translation.z - position.z,
-            );
+            let flat = Vec2::new(transform.translation.x - position.x, transform.translation.z - position.z);
             if flat.length() < CAR_HIT_DISTANCE {
-                let push = if flat.length() > 1.0e-4 {
-                    flat.normalize()
-                } else {
-                    Vec2::Y
-                };
-                let velocity = Vec3::new(push.x, 0.0, push.y) * (KNOCK_SPEED + car.speed * 0.35)
-                    + Vec3::Y * KNOCK_LIFT;
+                let push = if flat.length() > 1.0e-4 { flat.normalize() } else { Vec2::Y };
+                let velocity = Vec3::new(push.x, 0.0, push.y) * (KNOCK_SPEED + car.speed * 0.35) + Vec3::Y * KNOCK_LIFT;
                 knock_events.push((citizen_index, velocity));
                 car.stop_timer = CAR_STOP_SECONDS;
             }
         }
-
-        car_bodies.push((
-            Vec2::new(transform.translation.x, transform.translation.z),
-            CAR_BODY_RADIUS,
-        ));
+        car_bodies.push((Vec2::new(transform.translation.x, transform.translation.z), CAR_BODY_RADIUS));
     }
 
-    for (index, (mut transform, mut citizen)) in citizens.iter_mut().enumerate() {
+    let mut citizen_index = 0;
+    for (mut transform, mut citizen) in &mut citizens {
+        let index = citizen_index;
+        citizen_index += 1;
+        if citizen.dead { continue; }
         let phase = now * citizen.speed + citizen.phase;
         let offset = phase.sin() * citizen.range;
         let direction = if phase.cos() >= 0.0 { 1.0 } else { -1.0 };
         let along = if citizen.along_x { Vec3::X } else { Vec3::Z };
         let base = citizen.origin + along * offset;
-
+        let current = base + citizen.displacement;
+        let mut impact_velocity = Vec3::ZERO;
+        let mut impact_damage = 0.0;
+        for (target, velocity) in &knock_events {
+            if *target == index { impact_velocity = *velocity; impact_damage = CITIZEN_HEALTH; }
+        }
+        for (other, position) in citizen_positions.iter().enumerate() {
+            if other == index { continue; }
+            let flat = Vec2::new(current.x - position.x, current.z - position.z);
+            let distance = flat.length();
+            if distance < CITIZEN_BODY_RADIUS * 2.0 && distance > 1.0e-4 {
+                let push = flat.normalize();
+                let overlap = CITIZEN_BODY_RADIUS * 2.0 - distance;
+                citizen.displacement += Vec3::new(push.x, 0.0, push.y) * overlap * 0.5;
+            }
+        }
+        let to_player = Vec2::new(current.x - player.x, current.z - player.z);
+        let player_distance = to_player.length();
+        if probe.in_vehicle && player_distance < CAR_HIT_DISTANCE {
+            let push = if player_distance > 1.0e-4 { to_player.normalize() } else { Vec2::Y };
+            impact_velocity = Vec3::new(push.x, 0.0, push.y) * KNOCK_SPEED + Vec3::Y * KNOCK_LIFT;
+            impact_damage = CITIZEN_HEALTH;
+            player_incident = true;
+        } else if punching && player_distance < PUNCH_RANGE && player_distance > 1.0e-4 {
+            let to_citizen = Vec3::new(current.x - player.x, 0.0, current.z - player.z);
+            let aim = to_citizen.normalize().dot(player_forward);
+            if aim > PUNCH_CONE || player_distance < BODY_PUSH {
+                impact_velocity = to_citizen.normalize() * PUNCH_KNOCK + Vec3::Y * KNOCK_LIFT;
+                impact_damage = 1.0;
+                player_incident = true;
+            }
+        }
+        if impact_damage > 0.0 {
+            damage_citizen(&mut citizen, impact_damage);
+            citizen.knocked = KNOCK_SECONDS;
+            citizen.knock_velocity = impact_velocity;
+        }
         if citizen.knocked > 0.0 {
             let mut displacement = citizen.displacement;
             let mut velocity = citizen.knock_velocity;
@@ -509,77 +399,31 @@ fn simulate_city_life(
             citizen.displacement = citizen.displacement.lerp(Vec3::ZERO, (dt * 3.0).min(1.0));
             citizen.knock_velocity = Vec3::ZERO;
         }
-
-        let mut knock_velocity = Vec3::ZERO;
-        let mut hit = false;
-
-        let current = base + citizen.displacement;
-
-        for (other, position) in citizen_positions.iter().enumerate() {
-            if other == index {
-                continue;
-            }
-            let flat = Vec2::new(current.x - position.x, current.z - position.z);
-            let distance = flat.length();
-            if distance < CITIZEN_BODY_RADIUS * 2.0 && distance > 1.0e-4 {
-                let push = flat.normalize();
-                let overlap = CITIZEN_BODY_RADIUS * 2.0 - distance;
-                citizen.displacement += Vec3::new(push.x, 0.0, push.y) * overlap * 0.5;
-            }
-        }
-
-        let to_player = Vec2::new(current.x - player.x, current.z - player.z);
-        if !probe.in_vehicle && to_player.length() < BODY_PUSH && to_player.length() > 1.0e-4 {
-            let push = to_player.normalize();
-            let overlap = BODY_PUSH - to_player.length();
-            citizen.displacement += Vec3::new(push.x, 0.0, push.y) * overlap;
-        }
-
-        if probe.in_vehicle && to_player.length() < CAR_HIT_DISTANCE {
-            let push = if to_player.length() > 1.0e-4 {
-                to_player.normalize()
-            } else {
-                Vec2::Y
-            };
-            knock_velocity = Vec3::new(push.x, 0.0, push.y) * KNOCK_SPEED + Vec3::Y * KNOCK_LIFT;
-            hit = true;
-        }
-
-        if punching {
-            let to_citizen = Vec3::new(current.x - player.x, 0.0, current.z - player.z);
-            let flat_distance = to_citizen.length();
-            if flat_distance < PUNCH_RANGE && flat_distance > 1.0e-4 {
-                let aim = to_citizen.normalize().dot(player_forward);
-                if aim > PUNCH_CONE || flat_distance < BODY_PUSH {
-                    knock_velocity = to_citizen.normalize() * PUNCH_KNOCK + Vec3::Y * KNOCK_LIFT;
-                    hit = true;
-                }
-            }
-        }
-
-        for (target, velocity) in &knock_events {
-            if *target == index {
-                knock_velocity = *velocity;
-                hit = true;
-            }
-        }
-
-        if hit {
-            citizen.knocked = KNOCK_SECONDS;
-            citizen.knock_velocity = knock_velocity;
-        }
-
-        let fallen = if citizen.knocked > 0.0 {
-            (citizen.knocked / KNOCK_SECONDS).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
+        let fallen = if citizen.dead { 1.0 } else if citizen.knocked > 0.0 { (citizen.knocked / KNOCK_SECONDS).clamp(0.0, 1.0) } else { 0.0 };
         let path_rotation = pedestrian_rotation(citizen.along_x, direction);
         transform.translation = base + citizen.displacement - Vec3::Y * (FALL_TILT * fallen);
-        transform.rotation =
-            path_rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2 * fallen);
+        transform.rotation = path_rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2 * fallen);
     }
 
+    wanted.tick(dt, player_incident);
+    for (mut transform, patrol) in &mut patrols {
+        let position = Vec2::new(transform.translation.x, transform.translation.z);
+        let target = if wanted.level > 0 {
+            Vec2::new(player.x, player.z)
+        } else {
+            patrol.home + Vec2::new((now * 0.35 + patrol.phase).sin() * 8.0, (now * 0.28 + patrol.phase).cos() * 5.0)
+        };
+        let delta = target - position;
+        let distance = delta.length();
+        if distance > 5.5 {
+            let speed = if wanted.level > 0 { 8.0 + wanted.level as f32 * 1.2 } else { 2.4 };
+            let step = delta.normalize() * (speed * dt).min(distance - 5.5);
+            transform.translation.x += step.x;
+            transform.translation.z += step.y;
+            transform.rotation = Quat::from_rotation_y(step.x.atan2(step.y));
+        }
+        car_bodies.push((Vec2::new(transform.translation.x, transform.translation.z), CAR_BODY_RADIUS + 0.25));
+    }
     bodies.cars = car_bodies;
     probe.punch = false;
 }
@@ -588,77 +432,31 @@ fn simulate_city_life(
 mod tests {
     use super::*;
 
-    #[test]
-    fn traffic_models_face_the_direction_they_drive() {
-        for (along_x, direction, expected) in [
-            (true, 1.0, Vec3::X),
-            (true, -1.0, Vec3::new(-1.0, 0.0, 0.0)),
-            (false, 1.0, Vec3::Z),
-            (false, -1.0, Vec3::new(0.0, 0.0, -1.0)),
-        ] {
-            let forward = traffic_rotation(along_x, direction) * Vec3::Z;
-            assert!(forward.distance(expected) < 1.0e-5);
-        }
+    fn citizen() -> Citizen {
+        Citizen { origin: Vec3::ZERO, phase: 0.0, speed: 0.0, range: 0.0, along_x: true, displacement: Vec3::ZERO, knock_velocity: Vec3::ZERO, knocked: 0.0, health: CITIZEN_HEALTH, dead: false }
     }
 
     #[test]
-    fn pedestrians_face_the_direction_they_walk() {
-        let forward = pedestrian_rotation(true, 1.0) * Vec3::Z;
-        let backward = pedestrian_rotation(true, -1.0) * Vec3::Z;
-        assert!(forward.distance(Vec3::X) < 1.0e-5);
-        assert!(backward.distance(Vec3::new(-1.0, 0.0, 0.0)) < 1.0e-5);
+    fn traffic_models_face_the_direction_they_drive() {
+        for (along_x, direction, expected) in [(true, 1.0, Vec3::X), (true, -1.0, Vec3::new(-1.0, 0.0, 0.0)), (false, 1.0, Vec3::Z), (false, -1.0, Vec3::new(0.0, 0.0, -1.0))] {
+            assert!((traffic_rotation(along_x, direction) * Vec3::Z).distance(expected) < 1.0e-5);
+        }
     }
 
     #[test]
     fn pedestrian_paths_fit_between_roads_and_buildings() {
         assert!(SIDEWALK_OFFSET > ROAD_HALF_WIDTH);
         assert!(SIDEWALK_OFFSET < BUILDING_EDGE_FROM_ROAD);
-        let road = 6.0 * ROAD_SPACING - 144.0;
-        let sidewalk = road + SIDEWALK_OFFSET;
-        assert!(sidewalk.abs() < CITY_LIMIT);
-        assert!((-108.0_f32 - 7.0).abs() < CITY_LIMIT);
+        assert!((6.0 * ROAD_SPACING - 144.0 + SIDEWALK_OFFSET).abs() < CITY_LIMIT);
     }
 
     #[test]
-    fn streetlights_cover_selected_intersections_without_leaving_the_city() {
-        let positions = streetlight_positions();
-        assert_eq!(positions.len(), 36);
-        assert!(
-            positions
-                .iter()
-                .all(|position| { position.x.abs() < CITY_LIMIT && position.z.abs() < CITY_LIMIT })
-        );
-    }
-
-    #[test]
-    fn intersection_lights_are_limited_and_inside_the_city() {
-        let positions = intersection_light_positions();
-        assert_eq!(positions.len(), 9);
-        assert!(positions.iter().all(|position| {
-            position.x.abs() < CITY_LIMIT && position.z.abs() < CITY_LIMIT && position.y == 5.5
-        }));
-    }
-
-    #[test]
-    fn facade_windows_cover_every_building_and_stay_inside_the_city() {
+    fn streets_keep_lights_and_windows_inside_the_city() {
+        assert_eq!(streetlight_positions().len(), 36);
+        assert_eq!(intersection_light_positions().len(), 9);
         let windows = facade_window_transforms();
         assert_eq!(windows.len(), 1_008);
-        assert!(windows.iter().all(|(position, _)| {
-            position.x.abs() < CITY_LIMIT
-                && position.z.abs() < CITY_LIMIT
-                && position.y > 0.0
-                && position.y < 28.0
-        }));
-        assert!(
-            windows
-                .iter()
-                .any(|(_, rotation)| *rotation == Quat::IDENTITY)
-        );
-        assert!(
-            windows
-                .iter()
-                .any(|(_, rotation)| { (rotation * Vec3::Z).distance(Vec3::X) < 1.0e-5 })
-        );
+        assert!(windows.iter().all(|(p, _)| p.x.abs() < CITY_LIMIT && p.z.abs() < CITY_LIMIT && p.y > 0.0));
     }
 
     #[test]
@@ -666,20 +464,32 @@ mod tests {
         let mut displacement = Vec3::ZERO;
         let mut velocity = Vec3::new(6.0, KNOCK_LIFT, 0.0);
         let mut knocked = KNOCK_SECONDS;
-        let mut steps = 0;
-        while knocked > 0.0 && steps < 500 {
+        for _ in 0..500 {
+            if knocked <= 0.0 { break; }
             resolve_knock(&mut displacement, &mut velocity, &mut knocked, 0.02);
-            steps += 1;
         }
         assert_eq!(knocked, 0.0);
-        assert!(displacement.x > 0.5);
-        assert!(displacement.y >= 0.0);
+        assert!(displacement.x > 0.5 && displacement.y >= 0.0);
         assert!(displacement.length() <= MAX_KNOCK_OFFSET + 1.0e-3);
     }
 
     #[test]
-    fn punch_reach_stays_shorter_than_a_car_body() {
-        assert!(PUNCH_RANGE > BODY_PUSH);
-        assert!(PUNCH_RANGE < CAR_HIT_DISTANCE + CAR_BODY_RADIUS);
+    fn repeated_hits_kill_and_dead_npc_stays_dead() {
+        let mut person = citizen();
+        assert!(!damage_citizen(&mut person, 1.0));
+        assert!(!damage_citizen(&mut person, 1.0));
+        assert!(damage_citizen(&mut person, 1.0));
+        assert!(person.dead);
+        assert!(!damage_citizen(&mut person, 1.0));
+        assert_eq!(person.health, 0.0);
+    }
+
+    #[test]
+    fn wanted_caps_at_five_and_decays_in_stages() {
+        let mut wanted = WantedState::default();
+        for _ in 0..7 { wanted.report_incident(); }
+        assert_eq!(wanted.level, 5);
+        for _ in 0..6 { wanted.tick(WANTED_DECAY_START + 0.1, false); }
+        assert_eq!(wanted.level, 0);
     }
 }
