@@ -142,6 +142,50 @@ fn parse_count(line: &str, limit: usize) -> Option<usize> {
 }
 
 const MAX_RECORDS: usize = 4_096;
+const MAX_WORLD_COORDINATE: f32 = 200.0;
+
+fn valid_position(position: Vec3) -> bool {
+    position.is_finite()
+        && position.x.abs() <= MAX_WORLD_COORDINATE
+        && position.z.abs() <= MAX_WORLD_COORDINATE
+}
+
+fn valid_world(world: &WorldSnapshot) -> bool {
+    world.health.is_finite()
+        && (0.0..=100.0).contains(&world.health)
+        && world.wanted_level <= 6
+        && world.wanted_timer.is_finite()
+        && (0.0..=18.0).contains(&world.wanted_timer)
+        && world.traffic.iter().all(|car| {
+            valid_position(car.position)
+                && car.speed.is_finite()
+                && (0.0..=24.0).contains(&car.speed)
+                && car.direction.is_finite()
+                && (car.direction.abs() - 1.0).abs() < 0.001
+                && car.lane_offset.is_finite()
+                && car.lane_offset.abs() <= 12.0
+                && car.stop_timer.is_finite()
+                && (0.0..=10.0).contains(&car.stop_timer)
+        })
+        && world.citizens.iter().all(|citizen| {
+            valid_position(citizen.origin)
+                && citizen.displacement.is_finite()
+                && citizen.knock_velocity.is_finite()
+                && citizen.knocked.is_finite()
+                && (0.0..=2.0).contains(&citizen.knocked)
+                && citizen.health.is_finite()
+                && (0.0..=3.0).contains(&citizen.health)
+        })
+        && world
+            .patrols
+            .iter()
+            .all(|patrol| valid_position(patrol.position))
+        && world.officers.iter().all(|officer| {
+            valid_position(officer.position)
+                && officer.shot_timer.is_finite()
+                && (0.0..=5.0).contains(&officer.shot_timer)
+        })
+}
 
 fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
     let status = parse_numbers(lines.next()?, 3)?;
@@ -189,7 +233,7 @@ fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
             active,
         });
     }
-    Some(WorldSnapshot {
+    let world = WorldSnapshot {
         health: status[0],
         wanted_level: status[1].clamp(0.0, 6.0) as u8,
         wanted_timer: status[2],
@@ -197,7 +241,12 @@ fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
         citizens,
         patrols,
         officers,
-    })
+    };
+    if valid_world(&world) {
+        Some(world)
+    } else {
+        None
+    }
 }
 
 pub fn decode_snapshot(text: &str) -> Option<Snapshot> {
@@ -219,7 +268,11 @@ pub fn decode_snapshot(text: &str) -> Option<Snapshot> {
     let finites = [
         player[0], player[1], player[2], car[0], car[1], car[2], motion[0], motion[1],
     ];
-    if !finites.iter().all(|value| value.is_finite()) {
+    if !finites.iter().all(|value| value.is_finite())
+        || !valid_position(Vec3::new(player[0], player[1], player[2]))
+        || !valid_position(Vec3::new(car[0], car[1], car[2]))
+        || motion[1].abs() > 24.0
+    {
         return None;
     }
     Some(Snapshot {
@@ -320,5 +373,21 @@ mod tests {
         let non_finite = "NEON_FRONTIER_SAVE_V1\nNaN 0 0\n0 0 0\n0 0\n0\n0\nfalse\ntrue\n";
         assert!(decode_snapshot(invalid_version).is_none());
         assert!(decode_snapshot(non_finite).is_none());
+    }
+
+    #[test]
+    fn save_decoder_rejects_non_finite_world_state() {
+        let encoded = encode_snapshot(&sample()).replace("64.0000", "NaN");
+        assert!(decode_snapshot(&encoded).is_none());
+    }
+
+    #[test]
+    fn save_decoder_rejects_impossible_wanted_and_vehicle_state() {
+        let mut snapshot = sample();
+        snapshot.world.wanted_level = 7;
+        assert!(decode_snapshot(&encode_snapshot(&snapshot)).is_none());
+        let mut snapshot = sample();
+        snapshot.world.traffic[0].direction = 0.0;
+        assert!(decode_snapshot(&encode_snapshot(&snapshot)).is_none());
     }
 }
