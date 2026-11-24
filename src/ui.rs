@@ -20,13 +20,14 @@ fn wanted_status(state: &str) -> String {
     let level = stars.chars().filter(|character| *character == '★').count();
     let response = match level {
         0 => "патрули не разыскивают игрока",
-        1 => "патруль преследует на автомобиле",
-        2 => "патруль ускоряет автомобильный перехват",
+        1 => "патруль ведёт автомобильное преследование",
+        2 => "патруль ускоряет перехват и плотнее держит цель",
         3 => "преследование становится интенсивнее",
         4 => "городской розыск усиливается",
+        5 => "подключаются дополнительные патрули",
         _ => "максимальный уровень розыска",
     };
-    format!("{mode}\nРОЗЫСК {level}/5 • {response}")
+    format!("{mode}\nРОЗЫСК {level}/6 • {response}")
 }
 
 pub fn compose_hud(
@@ -83,12 +84,14 @@ mod tests {
     }
 
     #[test]
-    fn first_and_second_wanted_stars_have_distinct_hud_statuses() {
+    fn wanted_levels_have_distinct_labels_and_six_star_cap() {
         let one_star = wanted_status("ПЕШКОМ • розыск: ★");
         let two_stars = wanted_status("ПЕШКОМ • розыск: ★★");
+        let six_stars = wanted_status("ПЕШКОМ • розыск: ★★★★★★");
 
-        assert!(one_star.contains("РОЗЫСК 1/5 • патруль преследует на автомобиле"));
-        assert!(two_stars.contains("РОЗЫСК 2/5 • патруль ускоряет автомобильный перехват"));
+        assert!(one_star.contains("РОЗЫСК 1/6 • патруль ведёт автомобильное преследование"));
+        assert!(two_stars.contains("РОЗЫСК 2/6 • патруль ускоряет перехват и плотнее держит цель"));
+        assert!(six_stars.contains("РОЗЫСК 6/6 • максимальный уровень розыска"));
         assert_ne!(one_star, two_stars);
     }
 }
