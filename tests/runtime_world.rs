@@ -53,6 +53,47 @@ mod city_life {
             ));
         }
 
+        fn reject_restore_with_count_mismatch(
+            mut probe: ResMut<PlayerProbe>,
+            mut wanted: ResMut<WantedState>,
+            mut restore: ResMut<WorldRestore>,
+            mut traffic: Query<
+                (&mut Transform, &mut TrafficCar),
+                (
+                    Without<Citizen>,
+                    Without<PolicePatrol>,
+                    Without<FootOfficer>,
+                ),
+            >,
+            mut citizens: Query<
+                (&mut Transform, &mut Citizen),
+                (
+                    Without<TrafficCar>,
+                    Without<PolicePatrol>,
+                    Without<FootOfficer>,
+                ),
+            >,
+            mut patrols: Query<
+                (&mut Transform, &mut PolicePatrol),
+                (Without<TrafficCar>, Without<Citizen>, Without<FootOfficer>),
+            >,
+            mut officers: Query<
+                (&mut Transform, &mut FootOfficer, &mut Visibility),
+                (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>),
+            >,
+        ) {
+            let saved = restore.0.take().expect("loaded V1 world is pending");
+            assert!(!restore_world(
+                &saved,
+                &mut probe,
+                &mut wanted,
+                &mut traffic,
+                &mut citizens,
+                &mut patrols,
+                &mut officers,
+            ));
+        }
+
         #[test]
         fn v1_decode_and_runtime_restore_preserve_city_phases_and_timers() {
             let saved_world = WorldSnapshot {
@@ -201,6 +242,44 @@ mod city_life {
             assert!(officer_state.active);
             assert_eq!(officer_state.shot_timer, 0.85);
             assert_eq!(*visibility, Visibility::Visible);
+        }
+
+        #[test]
+        fn runtime_restore_rejects_mismatched_entity_counts_without_partial_changes() {
+            let snapshot = WorldSnapshot {
+                health: 12.0,
+                wanted_level: 5,
+                wanted_timer: 3.0,
+                traffic: vec![TrafficSave {
+                    position: Vec3::new(20.0, 0.48, 20.0),
+                    speed: 6.0,
+                    direction: 1.0,
+                    along_x: true,
+                    lane_offset: 0.0,
+                    avoid_offset: 0.0,
+                    stop_timer: 0.0,
+                }],
+                ..Default::default()
+            };
+            let mut probe = PlayerProbe::default();
+            probe.health = 77.0;
+            let mut wanted = WantedState {
+                level: 1,
+                decay_timer: 9.0,
+            };
+            let mut world = World::new();
+            world.insert_resource(probe);
+            world.insert_resource(wanted);
+            world.insert_resource(WorldRestore(Some(snapshot)));
+
+            world
+                .run_system_once(reject_restore_with_count_mismatch)
+                .expect("mismatched restore system runs");
+
+            assert_eq!(world.resource::<PlayerProbe>().health, 77.0);
+            assert_eq!(world.resource::<WantedState>().level, 1);
+            assert_eq!(world.resource::<WantedState>().decay_timer, 9.0);
+            assert_eq!(world.resource::<WorldRestore>().0, None);
         }
     }
 }
