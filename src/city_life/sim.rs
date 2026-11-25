@@ -132,7 +132,7 @@ pub(super) fn simulate_city_life(
         .collect();
     let mut traffic_vehicle_bodies: Vec<Body> = traffic
         .iter()
-        .map(|(transform, car)| traffic_vehicle_body(transform, car.along_x, car.direction))
+        .map(|(transform, car)| traffic_vehicle_body(&transform, car.along_x, car.direction))
         .collect();
     let citizen_positions: Vec<Vec3> = citizens
         .iter()
@@ -253,7 +253,7 @@ pub(super) fn simulate_city_life(
 
     let mut pair_bodies: Vec<Body> = traffic
         .iter_mut()
-        .map(|(transform, car)| traffic_vehicle_body(transform, car.along_x, car.direction))
+        .map(|(transform, car)| traffic_vehicle_body(&transform, car.along_x, car.direction))
         .collect();
     let pair_moved = resolve_traffic_body_pairs(&mut pair_bodies);
     for (index, ((mut transform, mut car), body)) in
