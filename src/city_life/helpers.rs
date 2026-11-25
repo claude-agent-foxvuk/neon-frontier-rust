@@ -139,6 +139,30 @@ pub(super) fn traffic_obstacle_ahead_with_bodies(
     police_positions: &[Vec2],
     car_index: usize,
 ) -> bool {
+    traffic_obstacle_ahead_with_player_forward(
+        baseline,
+        forward,
+        player,
+        forward,
+        vehicle,
+        in_vehicle,
+        traffic_bodies,
+        police_positions,
+        car_index,
+    )
+}
+
+pub(super) fn traffic_obstacle_ahead_with_player_forward(
+    baseline: Vec2,
+    forward: Vec2,
+    player: Vec2,
+    player_forward: Vec2,
+    vehicle: Option<Vec2>,
+    in_vehicle: bool,
+    traffic_bodies: &[crate::physics::Body],
+    police_positions: &[Vec2],
+    car_index: usize,
+) -> bool {
     let detection_yaw = forward.y.atan2(forward.x);
     let braking_probe = crate::physics::Body::new(
         baseline + forward * (CAR_BRAKE_DISTANCE * 0.5),
@@ -146,8 +170,13 @@ pub(super) fn traffic_obstacle_ahead_with_bodies(
         crate::physics::VEHICLE_HALF_WIDTH,
         detection_yaw,
     );
+    let player_yaw = if player_forward.is_finite() && player_forward.length_squared() > 1.0e-6 {
+        player_forward.y.atan2(player_forward.x)
+    } else {
+        detection_yaw
+    };
     let player_body = if in_vehicle {
-        crate::physics::Body::vehicle(player, detection_yaw)
+        crate::physics::Body::vehicle(player, player_yaw)
     } else {
         crate::physics::Body::person(player)
     };
@@ -240,6 +269,34 @@ mod oriented_traffic_tests {
             std::f32::consts::FRAC_PI_2,
         );
         assert!(has_car_ahead(crossing_lane));
+    }
+
+    #[test]
+    fn braking_sensor_uses_the_players_actual_vehicle_heading() {
+        let player = Vec2::new(11.0, 0.0);
+        let sideways_forward = Vec2::Y;
+        assert!(!traffic_obstacle_ahead_with_player_forward(
+            Vec2::ZERO,
+            Vec2::X,
+            player,
+            sideways_forward,
+            None,
+            true,
+            &[],
+            &[],
+            0,
+        ));
+        assert!(traffic_obstacle_ahead_with_player_forward(
+            Vec2::ZERO,
+            Vec2::X,
+            player,
+            Vec2::X,
+            None,
+            true,
+            &[],
+            &[],
+            0,
+        ));
     }
 
     #[test]
