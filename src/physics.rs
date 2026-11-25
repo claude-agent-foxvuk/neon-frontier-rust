@@ -252,6 +252,22 @@ pub fn resolve_body_overlaps(mut body: Body, obstacles: &[Body]) -> Body {
     body
 }
 
+/// Separates existing overlap, then moves a rotated body without passing through OBB obstacles.
+pub fn move_body_with_slide(mut body: Body, delta: Vec2, obstacles: &[Body]) -> Body {
+    if !body.is_valid() || !delta.is_finite() {
+        return body;
+    }
+    body = resolve_body_overlaps(body, obstacles);
+    let position = move_with_slide(body.center, delta, |center| {
+        let candidate = Body { center, ..body };
+        obstacles
+            .iter()
+            .any(|obstacle| bodies_overlap(&candidate, obstacle))
+    });
+    body.center = position;
+    body
+}
+
 /// Pushes a point out of every overlapping body along the nearest face.
 pub fn push_out_of_bodies(mut position: Vec2, clearance: f32, bodies: &[Body]) -> Vec2 {
     if !position.is_finite() || !clearance.is_finite() {
@@ -455,6 +471,28 @@ mod tests {
         let pedestrian = Body::person(Vec2::new(0.0, 1.0));
         let resolved_person = resolve_body_overlaps(pedestrian, &[parked]);
         assert!(!bodies_overlap(&resolved_person, &parked));
+    }
+
+    #[test]
+    fn swept_vehicle_body_stops_before_a_perpendicular_vehicle() {
+        let moving = Body::vehicle(Vec2::ZERO, 0.0);
+        let obstacle = Body::vehicle(Vec2::new(0.0, 5.0), 0.0);
+        let moved = move_body_with_slide(moving, Vec2::new(0.0, 10.0), &[obstacle]);
+
+        assert!(moved.center.y > 0.0);
+        assert!(moved.center.y < 3.2);
+        assert!(!bodies_overlap(&moved, &obstacle));
+    }
+
+    #[test]
+    fn swept_vehicle_body_slides_along_a_wall() {
+        let moving = Body::vehicle(Vec2::ZERO, 0.0);
+        let wall = Body::new(Vec2::new(2.5, 0.0), 0.5, 8.0, 0.0);
+        let moved = move_body_with_slide(moving, Vec2::new(5.0, 5.0), &[wall]);
+
+        assert!(moved.center.x < 0.0);
+        assert!(moved.center.y > 3.0);
+        assert!(!bodies_overlap(&moved, &wall));
     }
 
     #[test]
