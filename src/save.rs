@@ -46,6 +46,14 @@ fn record(values: &[f32], flag: Option<bool>) -> String {
     line
 }
 
+fn record_with_two_flags(values: &[f32], first: bool, second: bool) -> String {
+    let mut line = record(values, Some(first));
+    line.insert(line.len() - 1, ' ');
+    line.push_str(if second { "true" } else { "false" });
+    line.push('\n');
+    line
+}
+
 pub fn encode_snapshot(snapshot: &Snapshot) -> String {
     let mut text = String::from("NEON_FRONTIER_SAVE_V1\n");
     let player = [snapshot.player.x, snapshot.player.y, snapshot.player.z];
@@ -69,7 +77,11 @@ pub fn encode_snapshot(snapshot: &Snapshot) -> String {
     text.push_str(&format!("{}\n", snapshot.player_moving));
     text.push_str(&format!("{}\n", snapshot.player_running));
     text.push_str(&format!("{}\n", snapshot.player_grounded));
-    let camera = [snapshot.camera_yaw, snapshot.camera_orbit, snapshot.camera_pitch];
+    let camera = [
+        snapshot.camera_yaw,
+        snapshot.camera_orbit,
+        snapshot.camera_pitch,
+    ];
     text.push_str(&record(&camera, None));
     let world = &snapshot.world;
     let status = [world.health, world.wanted_level as f32, world.wanted_timer];
@@ -83,6 +95,7 @@ pub fn encode_snapshot(snapshot: &Snapshot) -> String {
             car.speed,
             car.direction,
             car.lane_offset,
+            car.avoid_offset,
             car.stop_timer,
         ];
         text.push_str(&record(&values, Some(car.along_x)));
@@ -93,6 +106,9 @@ pub fn encode_snapshot(snapshot: &Snapshot) -> String {
             citizen.origin.x,
             citizen.origin.y,
             citizen.origin.z,
+            citizen.phase,
+            citizen.speed,
+            citizen.range,
             citizen.displacement.x,
             citizen.displacement.y,
             citizen.displacement.z,
@@ -102,11 +118,16 @@ pub fn encode_snapshot(snapshot: &Snapshot) -> String {
             citizen.knocked,
             citizen.health,
         ];
-        text.push_str(&record(&values, Some(citizen.dead)));
+        text.push_str(&record_with_two_flags(&values, citizen.along_x, citizen.dead));
     }
     text.push_str(&format!("{}\n", world.patrols.len()));
     for patrol in &world.patrols {
-        let values = [patrol.position.x, patrol.position.y, patrol.position.z];
+        let values = [
+            patrol.position.x,
+            patrol.position.y,
+            patrol.position.z,
+            patrol.phase,
+        ];
         text.push_str(&record(&values, None));
     }
     text.push_str(&format!("{}\n", world.officers.len()));
@@ -154,6 +175,20 @@ fn parse_numbers_and_flag(line: &str, count: usize) -> Option<(Vec<f32>, bool)> 
         .map(|value| value.parse::<f32>().ok())
         .collect::<Option<Vec<_>>>()?;
     Some((values, flag))
+}
+
+fn parse_numbers_and_two_flags(line: &str, count: usize) -> Option<(Vec<f32>, bool, bool)> {
+    let mut parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() != count + 2 {
+        return None;
+    }
+    let second = parse_flag(parts.pop()?)?;
+    let first = parse_flag(parts.pop()?)?;
+    let values = parts
+        .iter()
+        .map(|value| value.parse::<f32>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    Some((values, first, second))
 }
 
 fn parse_count(line: &str, limit: usize) -> Option<usize> {
@@ -214,11 +249,19 @@ fn valid_snapshot(snapshot: &Snapshot) -> bool {
                 && (car.direction.abs() - 1.0).abs() < 0.001
                 && car.lane_offset.is_finite()
                 && car.lane_offset.abs() <= 12.0
+                && car.avoid_offset.is_finite()
+                && car.avoid_offset.abs() <= 12.0
                 && car.stop_timer.is_finite()
                 && (0.0..=10.0).contains(&car.stop_timer)
         })
         && snapshot.world.citizens.iter().all(|citizen| {
             valid_position(citizen.origin)
+                && citizen.phase.is_finite()
+                && citizen.phase.abs() <= 1_000.0
+                && citizen.speed.is_finite()
+                && (0.0..=5.0).contains(&citizen.speed)
+                && citizen.range.is_finite()
+                && (0.0..=20.0).contains(&citizen.range)
                 && citizen.displacement.is_finite()
                 && citizen.knock_velocity.is_finite()
                 && citizen.knocked.is_finite()
@@ -226,11 +269,11 @@ fn valid_snapshot(snapshot: &Snapshot) -> bool {
                 && citizen.health.is_finite()
                 && (0.0..=3.0).contains(&citizen.health)
         })
-        && snapshot
-            .world
-            .patrols
-            .iter()
-            .all(|patrol| valid_position(patrol.position))
+        && snapshot.world.patrols.iter().all(|patrol| {
+            valid_position(patrol.position)
+                && patrol.phase.is_finite()
+                && patrol.phase.abs() <= 1_000.0
+        })
         && snapshot.world.officers.iter().all(|officer| {
             valid_position(officer.position)
                 && officer.shot_timer.is_finite()
@@ -259,35 +302,41 @@ fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
     let traffic_count = parse_count(lines.next()?, MAX_RECORDS)?;
     let mut traffic = Vec::with_capacity(traffic_count);
     for _ in 0..traffic_count {
-        let (values, along_x) = parse_numbers_and_flag(lines.next()?, 7)?;
+        let (values, along_x) = parse_numbers_and_flag(lines.next()?, 8)?;
         traffic.push(TrafficSave {
             position: Vec3::new(values[0], values[1], values[2]),
             speed: values[3],
             direction: values[4],
             lane_offset: values[5],
-            stop_timer: values[6],
+            avoid_offset: values[6],
+            stop_timer: values[7],
             along_x,
         });
     }
     let citizen_count = parse_count(lines.next()?, MAX_RECORDS)?;
     let mut citizens = Vec::with_capacity(citizen_count);
     for _ in 0..citizen_count {
-        let (values, dead) = parse_numbers_and_flag(lines.next()?, 11)?;
+        let (values, along_x, dead) = parse_numbers_and_two_flags(lines.next()?, 14)?;
         citizens.push(CitizenSave {
             origin: Vec3::new(values[0], values[1], values[2]),
-            displacement: Vec3::new(values[3], values[4], values[5]),
-            knock_velocity: Vec3::new(values[6], values[7], values[8]),
-            knocked: values[9],
-            health: values[10],
+            phase: values[3],
+            speed: values[4],
+            range: values[5],
+            displacement: Vec3::new(values[6], values[7], values[8]),
+            knock_velocity: Vec3::new(values[9], values[10], values[11]),
+            knocked: values[12],
+            health: values[13],
+            along_x,
             dead,
         });
     }
     let patrol_count = parse_count(lines.next()?, MAX_RECORDS)?;
     let mut patrols = Vec::with_capacity(patrol_count);
     for _ in 0..patrol_count {
-        let values = parse_numbers(lines.next()?, 3)?;
+        let values = parse_numbers(lines.next()?, 4)?;
         patrols.push(PatrolSave {
             position: Vec3::new(values[0], values[1], values[2]),
+            phase: values[3],
         });
     }
     let officer_count = parse_count(lines.next()?, MAX_RECORDS)?;
@@ -437,10 +486,15 @@ mod tests {
                     direction: -1.0,
                     along_x: true,
                     lane_offset: 0.6,
+                    avoid_offset: -4.6,
                     stop_timer: 0.4,
                 }],
                 citizens: vec![CitizenSave {
                     origin: Vec3::new(-8.0, 0.82, 7.0),
+                    phase: 1.25,
+                    speed: 0.43,
+                    range: 7.0,
+                    along_x: false,
                     displacement: Vec3::new(0.5, 0.0, 0.25),
                     knock_velocity: Vec3::ZERO,
                     knocked: 0.0,
@@ -449,6 +503,7 @@ mod tests {
                 }],
                 patrols: vec![PatrolSave {
                     position: Vec3::new(-48.0, 0.48, -2.0),
+                    phase: 2.7,
                 }],
                 officers: vec![OfficerSave {
                     position: Vec3::new(-45.2, 0.82, -2.0),
@@ -487,6 +542,7 @@ mod tests {
                     direction: if index % 2 == 0 { 1.0 } else { -1.0 },
                     along_x: index % 3 == 0,
                     lane_offset: 0.0,
+                    avoid_offset: if index % 2 == 0 { 4.6 } else { -4.6 },
                     stop_timer: 0.0,
                 }
             })
@@ -496,6 +552,10 @@ mod tests {
                 let step = index as f32;
                 CitizenSave {
                     origin: Vec3::new(step * 5.0 - 30.0, 0.82, -12.0),
+                    phase: step * 0.71,
+                    speed: 0.35 + (index % 4) as f32 * 0.08,
+                    range: 7.0,
+                    along_x: index % 2 == 0,
                     displacement: Vec3::ZERO,
                     knock_velocity: Vec3::ZERO,
                     knocked: 0.0,
@@ -507,9 +567,11 @@ mod tests {
         snapshot.world.patrols = vec![
             PatrolSave {
                 position: Vec3::new(-48.0, 0.48, -2.0),
+                phase: 0.0,
             },
             PatrolSave {
                 position: Vec3::new(48.0, 0.48, 2.0),
+                phase: 2.7,
             },
         ];
         snapshot.world.officers = vec![
@@ -542,6 +604,30 @@ mod tests {
         assert_eq!(decoded.world.citizens.len(), 14);
         assert_eq!(decoded.world.patrols.len(), 2);
         assert_eq!(decoded.world.officers.len(), 2);
+    }
+
+    #[test]
+    fn save_v1_keeps_traffic_lanes_and_pedestrian_paths() {
+        let decoded = decode_snapshot(&encode_snapshot(&crowded_world())).expect("save decodes");
+        let car = decoded.world.traffic[1];
+        assert_eq!(car.avoid_offset, -4.6);
+        assert_eq!(car.lane_offset, 0.0);
+        let walker = decoded.world.citizens[3];
+        assert!((walker.phase - 2.13).abs() < 0.001);
+        assert!((walker.speed - 0.59).abs() < 0.001);
+        assert_eq!(walker.range, 7.0);
+        assert!(!walker.along_x);
+        assert_eq!(decoded.world.patrols[1].phase, 2.7);
+    }
+
+    #[test]
+    fn save_v1_keeps_wanted_levels_health_and_officers() {
+        let decoded = decode_snapshot(&encode_snapshot(&sample())).expect("save decodes");
+        assert_eq!(decoded.world.health, 64.0);
+        assert_eq!(decoded.world.wanted_level, 3);
+        assert_eq!(decoded.world.wanted_timer, 12.5);
+        assert!(decoded.world.officers[0].active);
+        assert_eq!(decoded.world.officers[0].shot_timer, 0.35);
     }
 
     #[test]
@@ -647,6 +733,21 @@ mod tests {
         assert!(decode_snapshot(&encode_snapshot(&snapshot)).is_none());
         let mut snapshot = sample();
         snapshot.world.traffic[0].direction = 0.0;
+        assert!(decode_snapshot(&encode_snapshot(&snapshot)).is_none());
+    }
+
+    #[test]
+    fn save_decoder_rejects_broken_world_detail_columns() {
+        let encoded = encode_snapshot(&crowded_world());
+        let without_flag = encoded.replacen("true true", "true", 1);
+        assert!(decode_snapshot(&without_flag).is_none());
+
+        let mut snapshot = sample();
+        snapshot.world.citizens[0].range = 40.0;
+        assert!(decode_snapshot(&encode_snapshot(&snapshot)).is_none());
+
+        let mut snapshot = sample();
+        snapshot.world.traffic[0].avoid_offset = 40.0;
         assert!(decode_snapshot(&encode_snapshot(&snapshot)).is_none());
     }
 }
