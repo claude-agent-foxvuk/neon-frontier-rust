@@ -267,3 +267,48 @@ fn live_walking_player_and_pedestrian_separate_without_wanted_level() {
     ));
     assert_eq!(world.resource::<WorldState>().snapshot.wanted_level, 0);
 }
+
+#[test]
+fn live_traffic_brakes_before_the_player_vehicle_obb() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(0.0, 0.65, 0.0),
+        vehicle_position: Vec3::new(0.0, 0.65, 0.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: true,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    world.spawn((
+        Transform::from_xyz(-9.0, 0.48, 0.0),
+        TrafficCar {
+            speed: 8.0,
+            direction: 1.0,
+            along_x: true,
+            stop_timer: 0.0,
+            lane_offset: 0.0,
+            avoid_offset: 0.0,
+        },
+    ));
+
+    world
+        .run_system_once(simulate_city_life)
+        .expect("traffic detects the player vehicle using its oriented footprint");
+
+    let mut query = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
+    let (transform, car) = query.single(&world).expect("one traffic car remains");
+    assert_eq!(transform.translation.x, -9.0);
+    assert!(car.stop_timer > 0.0);
+    assert!(!bodies_overlap(
+        &traffic_vehicle_body(transform, car.along_x, car.direction),
+        &Body::vehicle(Vec2::ZERO, -std::f32::consts::FRAC_PI_2),
+    ));
+}
