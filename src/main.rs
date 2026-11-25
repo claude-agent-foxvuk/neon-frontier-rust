@@ -1519,7 +1519,7 @@ mod tests {
         assert!((sun_height(0.5) - 1.0).abs() < 1.0e-5);
         assert!((sun_height(0.0) + 1.0).abs() < 1.0e-5);
         assert!(sun_height(0.25).abs() < 1.0e-4);
-        assert!(sun_height(1.5).abs() < 1.0e-4);
+        assert!((sun_height(1.5) - sun_height(0.5)).abs() < 1.0e-5);
     }
 
     #[test]
