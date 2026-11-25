@@ -185,3 +185,31 @@ fn mismatched_entity_counts_reject_the_saved_world() {
     assert_eq!(world.resource::<WorldState>().snapshot.officers.len(), 0);
     assert!((world.resource::<PlayerProbe>().health - 100.0).abs() < 1.0e-4);
 }
+
+#[test]
+fn main_update_world_queries_initialize_without_conflicts() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(crate::Game::default());
+    world.spawn((crate::SunLight, DirectionalLight::default()));
+    world.spawn((
+        crate::FollowCamera,
+        Transform::default(),
+        DistanceFog {
+            color: Color::srgb(0.035, 0.06, 0.10),
+            directional_light_color: Color::srgba(0.35, 0.55, 0.80, 0.18),
+            directional_light_exponent: 12.0,
+            falloff: FogFalloff::from_visibility_colors(
+                190.0,
+                Color::srgb(0.04, 0.06, 0.10),
+                Color::srgb(0.10, 0.15, 0.22),
+            ),
+        },
+    ));
+
+    world
+        .run_system_once(crate::update_world)
+        .expect("main world update must initialize its ECS queries without conflicts");
+}
