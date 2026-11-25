@@ -48,7 +48,8 @@ fn record(values: &[f32], flag: Option<bool>) -> String {
 
 fn record_with_two_flags(values: &[f32], first: bool, second: bool) -> String {
     let mut line = record(values, Some(first));
-    line.insert(line.len() - 1, ' ');
+    line.pop();
+    line.push(' ');
     line.push_str(if second { "true" } else { "false" });
     line.push('\n');
     line
