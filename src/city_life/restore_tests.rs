@@ -213,3 +213,50 @@ fn main_update_world_queries_initialize_without_conflicts() {
         .run_system_once(crate::update_world)
         .expect("main world update must initialize its ECS queries without conflicts");
 }
+
+#[test]
+fn live_traffic_avoids_player_vehicle_using_obb_contacts() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(0.0, 0.65, 0.0),
+        vehicle_position: Vec3::new(0.0, 0.65, 0.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: true,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+    world.spawn((
+        Transform::from_xyz(6.0, 0.48, 0.0),
+        TrafficCar {
+            speed: 6.0,
+            direction: 1.0,
+            along_x: true,
+            stop_timer: 0.0,
+            lane_offset: 0.0,
+            avoid_offset: 0.0,
+        },
+    ));
+
+    world
+        .run_system_once(simulate_city_life)
+        .expect("live city simulation initializes and advances its collision queries");
+
+    let traffic_transform = world
+        .query_filtered::<&Transform, With<TrafficCar>>()
+        .single(&world)
+        .expect("one traffic vehicle was spawned");
+    let traffic_body = vehicle_body_from_forward(traffic_transform.translation, Vec3::X);
+    let player = world.resource::<PlayerProbe>();
+    let player_body = vehicle_body_from_forward(player.vehicle_position, player.forward);
+    assert!(
+        !crate::physics::bodies_overlap(&traffic_body, &player_body),
+        "traffic must not pass through the player's oriented vehicle footprint"
+    );
+}
