@@ -201,6 +201,57 @@ pub fn bodies_overlap(first: &Body, second: &Body) -> bool {
     true
 }
 
+/// Returns the smallest translation that moves `first` clear of `second`.
+pub fn body_separation_vector(first: &Body, second: &Body) -> Option<Vec2> {
+    if !first.is_valid() || !second.is_valid() {
+        return None;
+    }
+    let delta = first.center - second.center;
+    let axes = [
+        first.axis_x(),
+        first.axis_y(),
+        second.axis_x(),
+        second.axis_y(),
+    ];
+    let mut best: Option<(f32, Vec2)> = None;
+    for axis in axes {
+        if axis.length_squared() <= MIN_DISTANCE_SQUARED {
+            continue;
+        }
+        let axis = axis.normalize();
+        let signed_distance = delta.dot(axis);
+        let overlap = first.radius_on(axis) + second.radius_on(axis) - signed_distance.abs();
+        if overlap <= 0.0 {
+            return None;
+        }
+        if best.is_none_or(|(depth, _)| overlap < depth) {
+            let direction = if signed_distance < 0.0 { -axis } else { axis };
+            best = Some((overlap, direction));
+        }
+    }
+    best.map(|(overlap, direction)| direction * (overlap + CONTACT_SLOP))
+}
+
+/// Separates one oriented body from a set of stationary oriented bodies.
+pub fn resolve_body_overlaps(mut body: Body, obstacles: &[Body]) -> Body {
+    if !body.is_valid() {
+        return body;
+    }
+    for _ in 0..SEPARATION_PASSES {
+        let mut moved = false;
+        for obstacle in obstacles {
+            if let Some(translation) = body_separation_vector(&body, obstacle) {
+                body.center += translation;
+                moved = true;
+            }
+        }
+        if !moved {
+            break;
+        }
+    }
+    body
+}
+
 /// Pushes a point out of every overlapping body along the nearest face.
 pub fn push_out_of_bodies(mut position: Vec2, clearance: f32, bodies: &[Body]) -> Vec2 {
     if !position.is_finite() || !clearance.is_finite() {
@@ -377,6 +428,46 @@ mod tests {
         let crossing = Body::vehicle(Vec2::new(0.0, 2.4), std::f32::consts::FRAC_PI_2);
         assert!(!bodies_overlap(&first, &beside));
         assert!(bodies_overlap(&first, &crossing));
+    }
+
+    #[test]
+    fn body_separation_vector_uses_the_smallest_translation() {
+        let first = Body::vehicle(Vec2::ZERO, 0.0);
+        let second = Body::vehicle(Vec2::new(0.0, 1.5), 0.0);
+        let translation = body_separation_vector(&first, &second).expect("cars overlap");
+        assert!(translation.y < 0.0);
+        assert!(translation.x.abs() < 1.0e-5);
+        let moved = Body {
+            center: first.center + translation,
+            ..first
+        };
+        assert!(!bodies_overlap(&moved, &second));
+    }
+
+    #[test]
+    fn oriented_body_resolution_separates_crossing_vehicles_and_people() {
+        let parked = Body::vehicle(Vec2::ZERO, 0.0);
+        let crossing = Body::vehicle(Vec2::new(0.0, 1.8), std::f32::consts::FRAC_PI_2);
+        let resolved = resolve_body_overlaps(crossing, &[parked]);
+        assert!(resolved.center.is_finite());
+        assert!(!bodies_overlap(&resolved, &parked));
+
+        let pedestrian = Body::person(Vec2::new(0.0, 1.0));
+        let resolved_person = resolve_body_overlaps(pedestrian, &[parked]);
+        assert!(!bodies_overlap(&resolved_person, &parked));
+    }
+
+    #[test]
+    fn body_resolution_leaves_clear_and_invalid_bodies_unchanged() {
+        let car = Body::vehicle(Vec2::new(0.0, 5.0), 0.4);
+        let parked = Body::vehicle(Vec2::ZERO, 0.0);
+        let invalid = Body {
+            center: Vec2::new(f32::NAN, 0.0),
+            ..parked
+        };
+        assert_eq!(resolve_body_overlaps(car, &[parked]), car);
+        assert_eq!(resolve_body_overlaps(car, &[invalid]), car);
+        assert_eq!(body_separation_vector(&car, &invalid), None);
     }
 
     #[test]
