@@ -27,6 +27,8 @@ const PUNCH_COOLDOWN: f32 = 0.45;
 const MISSION_MARKER_PULSE: f32 = 0.12;
 const PLAYER_BODY_RADIUS: f32 = 0.45;
 const PLAYER_CAR_RADIUS: f32 = 2.2;
+const SPAWN_PLAYER: Vec3 = Vec3::new(2.0, PLAYER_GROUND_Y, 2.0);
+const SPAWN_CAR: Vec3 = Vec3::new(0.0, 0.65, 6.0);
 
 #[derive(Component)]
 struct PlayerVisual {
@@ -76,8 +78,8 @@ struct Game {
 impl Default for Game {
     fn default() -> Self {
         Self {
-            player: Vec3::new(2.0, PLAYER_GROUND_Y, 2.0),
-            car: Vec3::new(0.0, 0.65, 6.0),
+            player: SPAWN_PLAYER,
+            car: SPAWN_CAR,
             yaw: 0.0,
             speed: 0.0,
             steering: 0.0,
@@ -877,6 +879,28 @@ fn controls(
     };
     probe.in_vehicle = game.driving;
     probe.vehicle_position = game.car;
+
+    if probe.health <= 0.0 {
+        probe.health = 100.0;
+        game.driving = false;
+        game.speed = 0.0;
+        game.steering = 0.0;
+        game.lateral_speed = 0.0;
+        game.player = SPAWN_PLAYER;
+        game.car = SPAWN_CAR;
+        game.player_vertical_speed = 0.0;
+        game.player_grounded = true;
+        game.player_moving = false;
+        game.camera_yaw = 0.0;
+        game.camera_orbit = 0.0;
+        game.mouse_captured = false;
+        game.notice = "Здоровье на нуле: игрок вернулся на старт".to_string();
+        game.notice_timer = 3.0;
+        probe.position = game.player;
+        probe.forward = walk_direction(0.0, 1.0, game.camera_yaw);
+        probe.in_vehicle = false;
+        probe.vehicle_position = game.car;
+    }
 }
 
 fn update_world(
@@ -996,6 +1020,7 @@ fn update_world(
 fn update_hud(
     game: Res<Game>,
     wanted: Res<city_life::WantedState>,
+    probe: Res<city_life::PlayerProbe>,
     mut labels: Query<&mut Text, With<ui::Hud>>,
 ) {
     if !game.started {
@@ -1047,6 +1072,7 @@ fn update_hud(
     let content = ui::compose_hud(
         &objective,
         game.credits,
+        probe.health,
         &state,
         interaction,
         &speed,
@@ -1087,7 +1113,7 @@ mod tests {
 
     #[test]
     fn parked_own_car_blocks_the_walking_player() {
-        let car = Vec3::new(0.0, 0.65, 6.0);
+        let car = SPAWN_CAR;
         assert!(blocked_by_parked_car(
             Vec3::new(0.0, 0.9, 8.0),
             car,
@@ -1097,6 +1123,21 @@ mod tests {
             Vec3::new(0.0, 0.9, 10.0),
             car,
             PLAYER_BODY_RADIUS
+        ));
+    }
+
+    #[test]
+    fn spawn_points_start_on_the_ground_and_on_the_road() {
+        assert_eq!(SPAWN_PLAYER.y, PLAYER_GROUND_Y);
+        assert!(!collides(
+            Vec2::new(SPAWN_PLAYER.x, SPAWN_PLAYER.z),
+            PLAYER_BODY_RADIUS,
+            &[]
+        ));
+        assert!(!collides(
+            Vec2::new(SPAWN_CAR.x, SPAWN_CAR.z),
+            PLAYER_CAR_RADIUS,
+            &[]
         ));
     }
 
@@ -1138,7 +1179,11 @@ mod tests {
     fn traffic_cars_block_the_player() {
         let cars = vec![(Vec2::new(4.0, 0.0), 2.2)];
         assert!(blocked_by_traffic(&cars, Vec3::new(5.0, 0.0, 0.0), 0.45));
-        assert!(!blocked_by_traffic(&cars, Vec3::new(12.0, 0.0, 0.0), 0.45));
+        assert!(!blocked_by_traffic(
+            &cars,
+            Vec3::new(12.0, 0.0, 0.0),
+            0.45
+        ));
     }
 
     #[test]
