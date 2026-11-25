@@ -1,6 +1,6 @@
 # Neon Frontier — project state
 
-Last checked: 2026-11-25 13:57 UTC. Source of truth: current `main`, repository files, and GitHub Actions results.
+Last checked: 2026-11-25 14:21 UTC. Source of truth: current `main`, repository files, and GitHub Actions results.
 
 ## Scope and decisions
 - Windows 11, Rust 1.100+, Bevy 0.20.1; original compact open-world action-driving game.
@@ -9,20 +9,23 @@ Last checked: 2026-11-25 13:57 UTC. Source of truth: current `main`, repository 
 - Keep `README.md`, `FEATURES.md`, `TODO.md`, and this file current. A green CI run alone does not prove manual playability.
 
 ## Current main and verification
-- Current `main` is `99305fcfb5bd0dc98ff41687d20a16382091d1a0`; project-state docs record the restored source commit `0fed91ba357a17afbdfcd7442070c1dcb0771149` immediately before it.
-- Run #73 is testing `0fed91ba357a17afbdfcd7442070c1dcb0771149`, the code tree currently on `main`. At 13:56:26 UTC setup, checkout, Rust 1.100 installation, cache restore, and format check had passed. `cargo test --release --features bevy/debug` was in progress; build, startup smoke, and artifact upload had not run. No artifact was listed yet.
-- Run #70 on `8251fadc5bc9ab525f5299f619c72d4784e7ce9d` failed at compile time with E0308: `restore_world` accepted a three-filter officer query while its caller supplied four filters. The smoke step was skipped because tests failed. The city source and filters were restored in `0fed91b`; #73 is the first Windows check on that restored tree.
-- Runs #71 and #72 concern superseded code SHAs and do not verify current `main`.
-- `src/city_life.rs` is now split into `core.rs`, `helpers.rs`, `sim.rs`, and `tests.rs`; query filters in the restore and simulation officer queries include `Without<PoliceSirenLight>`.
-- The workflow uses `cargo test --release --features bevy/debug`, a Windows startup smoke step that scans captured output for `error[B000`, and release EXE upload. The smoke step's actual result is still pending on #73.
+- Current `main`: `6b5af2cdbe9801dc8a16ebc4557f5f935b175016`.
+- `src/main.rs` already compares `sun_height(1.5)` to `sun_height(0.5)` at the same tolerance. The time-phase correction is present; green test results still need confirmation from Actions.
+- Added `main_update_world_queries_initialize_without_conflicts` in `src/city_life/restore_tests.rs`. It runs the `update_world` ECS system with minimal sun and camera entities to catch query conflicts. The existing round-trip tests also initialize `simulate_city_life` with siren and muzzle-flash entities.
+- The owner reported that EXE from #66 panicked with Bevy ECS B0001 when its window opened. This remains an unresolved launch defect until a current Windows smoke run completes without B0001.
+- Run #77 on `b917918d0db43883956fab2f057034a2d3c0ba47` and #78 on `639e43a355efa16987a6f622c49c92f1cb2c1eb1` were still in `cargo test --release --features bevy/debug` at 14:20 UTC. Their build, startup smoke, and artifact steps had not run.
+- Run #79 on `2b5e6e75ea32a97c9a2295f6f69bc36272af24e3` includes a stricter Windows smoke step: it fails on a B000 diagnostic or any process exit during the 10-second window. At 14:20 UTC its test step was running.
+- Run #80 on current `main` (`6b5af2cdbe9801dc8a16ebc4557f5f935b175016`) includes the `update_world` query regression test. At 14:20 UTC the runner was still restoring Cargo cache; tests, build, smoke, and artifact upload had not run.
+- No current run has yet verified a fresh executable with the new smoke behavior. Read each run's final job result and artifact before claiming success.
 
 ## Previously verified baseline and known limits
-- Run #66 passed on `59d2e38a6aba6d8fcecddc4c93b16ace23d97464` and uploaded `neon-frontier-windows-x64`, 28,711,072 bytes. Fox later reported that this EXE panicked with Bevy B0001 at window startup; it is not a validated playable build.
-- The test `sun_peaks_at_noon_and_bottoms_out_at_midnight` already compares `sun_height(1.5)` to `sun_height(0.5)` with a tolerance; current source contains that correction. Verify its current run result in #73.
-- OBB/SAT, swept movement, pair resolution helpers and unit tests exist. OBB is only partially connected to the city ECS; multiple player/vehicle/pedestrian collision paths still use circles.
-- Manual Windows 11 testing is required for launch, Russian text, menu, F5/F9, collisions, vehicle model, sirens and graphics. No current EXE has passed that owner-side check.
+- Run #66 passed on `59d2e38a6aba6d8fcecddc4c93b16ace23d97464` and uploaded `neon-frontier-windows-x64`, 28,711,072 bytes. Fox later reported the B0001 startup panic, so this EXE is not validated as playable.
+- Run #73 on `0fed91ba357a17afbdfcd7442070c1dcb0771149` failed because include-based integration tests could not resolve modules and types after the city module split. Those tests were removed and key checks moved inside the crate; #77/#78 are testing that path.
+- #70 on obsolete SHA `8251fadc5bc9ab525f5299f619c72d4784e7ce9d` failed with E0308 in the restore-world officer filter. The current restore caller and signature both use the siren-disjoint filter.
+- The Windows workflow retains `cargo test --release --features bevy/debug`; the release build reuses its artifacts. The workflow smoke step now fails on early exit instead of only warning.
+- OBB/SAT helpers and tests exist, but OBB is only partly connected to gameplay ECS collision paths. Manual Windows 11 testing of launch, Russian text, menu, F5/F9, HUD scaling, car handling, collisions, sirens, and performance remains open.
 
 ## Remaining work
-- Read #73 result, especially test output, startup smoke log and `neon-frontier-windows-x64` artifact, before treating the current source as verified.
-- Continue `TODO.md`: finish gameplay OBB integration and stable pair separation, improve car inertia/grip/braking, implement higher-level police response, add city events/missions, test HUD scaling and menu/save hotkeys, and keep modules organized.
-- Update `README.md`, `FEATURES.md`, and `TODO.md` with verified state, not assumptions; never mark the whole TODO complete because of one green run.
+- Read and fix any failures in #77, #78, #79, and #80; prioritize the current `main` run and confirm the smoke test and `neon-frontier-windows-x64` artifact.
+- Continue the unchecked P0/P1/P2 items in `TODO.md`; defer its low-priority P3 witness/streaming section until higher priorities are done.
+- Update `README.md`, `FEATURES.md`, and `TODO.md` from verified results only. Do not mark all TODO items complete because one run passes.
