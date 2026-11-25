@@ -238,6 +238,19 @@ fn valid_snapshot(snapshot: &Snapshot) -> bool {
         })
 }
 
+pub fn restore_counts_match(
+    world: &WorldSnapshot,
+    traffic: usize,
+    citizens: usize,
+    patrols: usize,
+    officers: usize,
+) -> bool {
+    world.traffic.len() == traffic
+        && world.citizens.len() == citizens
+        && world.patrols.len() == patrols
+        && world.officers.len() == officers
+}
+
 fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
     let status = parse_numbers(lines.next()?, 3)?;
     if !status[1].is_finite() || !(0.0..=6.0).contains(&status[1]) || status[1].fract() != 0.0 {
@@ -446,10 +459,131 @@ mod tests {
         }
     }
 
+    const EMPTY_WORLD_HEADER: &str = concat!(
+        "NEON_FRONTIER_SAVE_V1\n",
+        "0 0.9 0\n",
+        "0 0.65 0\n",
+        "0 0\n",
+        "0\n",
+        "0\n",
+        "false\n",
+        "true\n",
+        "0 0 0 0 0\n",
+        "false\n",
+        "false\n",
+        "true\n",
+        "0 0 0.38\n",
+        "100 0 0\n"
+    );
+
+    fn crowded_world() -> Snapshot {
+        let mut snapshot = sample();
+        snapshot.world.traffic = (0..14)
+            .map(|index| {
+                let step = index as f32;
+                TrafficSave {
+                    position: Vec3::new(step * 4.0 - 26.0, 0.48, 4.5),
+                    speed: 5.0 + step * 0.4,
+                    direction: if index % 2 == 0 { 1.0 } else { -1.0 },
+                    along_x: index % 3 == 0,
+                    lane_offset: 0.0,
+                    stop_timer: 0.0,
+                }
+            })
+            .collect();
+        snapshot.world.citizens = (0..14)
+            .map(|index| {
+                let step = index as f32;
+                CitizenSave {
+                    origin: Vec3::new(step * 5.0 - 30.0, 0.82, -12.0),
+                    displacement: Vec3::ZERO,
+                    knock_velocity: Vec3::ZERO,
+                    knocked: 0.0,
+                    health: 2.0,
+                    dead: index % 7 == 0,
+                }
+            })
+            .collect();
+        snapshot.world.patrols = vec![
+            PatrolSave {
+                position: Vec3::new(-48.0, 0.48, -2.0),
+            },
+            PatrolSave {
+                position: Vec3::new(48.0, 0.48, 2.0),
+            },
+        ];
+        snapshot.world.officers = vec![
+            OfficerSave {
+                position: Vec3::new(-45.2, 0.82, -2.0),
+                active: true,
+                shot_timer: 0.35,
+            },
+            OfficerSave {
+                position: Vec3::new(50.2, 0.82, 2.0),
+                active: false,
+                shot_timer: 0.0,
+            },
+        ];
+        snapshot
+    }
+
     #[test]
     fn save_format_round_trips_game_state() {
         let snapshot = sample();
         assert_eq!(decode_snapshot(&encode_snapshot(&snapshot)), Some(snapshot));
+    }
+
+    #[test]
+    fn save_format_round_trips_a_crowded_world() {
+        let crowded = crowded_world();
+        let decoded = decode_snapshot(&encode_snapshot(&crowded)).expect("save decodes");
+        assert_eq!(decoded, crowded);
+        assert_eq!(decoded.world.traffic.len(), 14);
+        assert_eq!(decoded.world.citizens.len(), 14);
+        assert_eq!(decoded.world.patrols.len(), 2);
+        assert_eq!(decoded.world.officers.len(), 2);
+    }
+
+    #[test]
+    fn restore_counts_must_match_the_saved_world() {
+        let world = crowded_world().world;
+        assert!(restore_counts_match(&world, 14, 14, 2, 2));
+        assert!(!restore_counts_match(&world, 13, 14, 2, 2));
+        assert!(!restore_counts_match(&world, 14, 15, 2, 2));
+        assert!(!restore_counts_match(&world, 14, 14, 1, 2));
+        assert!(!restore_counts_match(&world, 14, 14, 2, 0));
+    }
+
+    #[test]
+    fn save_decoder_accepts_an_empty_world() {
+        let mut text = String::from(EMPTY_WORLD_HEADER);
+        text.push_str("0\n0\n0\n0\n");
+        let decoded = decode_snapshot(&text).expect("an empty world decodes");
+        assert!(decoded.world.traffic.is_empty());
+        assert!(decoded.world.citizens.is_empty());
+        assert!(decoded.world.patrols.is_empty());
+        assert!(decoded.world.officers.is_empty());
+        assert_eq!(decoded.world.health, 100.0);
+        assert_eq!(decoded.stage, 0);
+    }
+
+    #[test]
+    fn save_decoder_rejects_truncated_padded_and_countless_files() {
+        let encoded = encode_snapshot(&crowded_world());
+        let half = encoded.len() / 2;
+        assert!(decode_snapshot(&encoded[..half]).is_none());
+
+        let mut padded = encoded.clone();
+        padded.push_str("0\n");
+        assert!(decode_snapshot(&padded).is_none());
+
+        let mut missing_records = String::from(EMPTY_WORLD_HEADER);
+        missing_records.push_str("2\n");
+        assert!(decode_snapshot(&missing_records).is_none());
+
+        let mut absurd_count = String::from(EMPTY_WORLD_HEADER);
+        absurd_count.push_str("5000\n");
+        assert!(decode_snapshot(&absurd_count).is_none());
     }
 
     #[test]
