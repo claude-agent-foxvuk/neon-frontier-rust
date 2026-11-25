@@ -215,14 +215,14 @@ fn main_update_world_queries_initialize_without_conflicts() {
 }
 
 #[test]
-fn live_traffic_avoids_player_vehicle_using_obb_contacts() {
+fn live_traffic_brakes_for_ahead_player_vehicle_using_obb_contacts() {
     let mut world = World::new();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
     world.insert_resource(PlayerProbe {
-        position: Vec3::new(0.0, 0.65, 0.0),
-        vehicle_position: Vec3::new(0.0, 0.65, 0.0),
+        position: Vec3::new(12.0, 0.65, 0.0),
+        vehicle_position: Vec3::new(12.0, 0.65, 0.0),
         forward: Vec3::NEG_Z,
         in_vehicle: true,
         punch: false,
@@ -248,6 +248,9 @@ fn live_traffic_avoids_player_vehicle_using_obb_contacts() {
         .run_system_once(simulate_city_life)
         .expect("live city simulation initializes and advances its collision queries");
 
+    let snapshot = &world.resource::<WorldState>().snapshot;
+    assert_eq!(snapshot.traffic.len(), 1);
+    assert!(snapshot.traffic[0].stop_timer > 0.19);
     let traffic_transform = world
         .query_filtered::<&Transform, With<TrafficCar>>()
         .single(&world)
@@ -257,6 +260,6 @@ fn live_traffic_avoids_player_vehicle_using_obb_contacts() {
     let player_body = vehicle_body_from_forward(player.vehicle_position, player.forward);
     assert!(
         !crate::physics::bodies_overlap(&traffic_body, &player_body),
-        "traffic must not pass through the player's oriented vehicle footprint"
+        "traffic must brake before reaching the player's oriented vehicle footprint"
     );
 }
