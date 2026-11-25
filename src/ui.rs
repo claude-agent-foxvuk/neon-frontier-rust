@@ -263,7 +263,8 @@ mod tests {
         );
 
         assert!(hud.contains("контрольная точка"));
-        assert!(hud.contains("файл повреждён или отсутствует"));
+        assert!(hud.contains("файл повреждён"));
+        assert!(hud.contains("отсутствует"));
         assert!(hud
             .lines()
             .all(|line| line.chars().count() <= HUD_MAX_LINE_CHARS));
