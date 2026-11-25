@@ -103,6 +103,39 @@ pub(super) fn traffic_obstacle_ahead(
         })
 }
 
+pub(super) fn traffic_obstacle_ahead_with_bodies(
+    baseline: Vec2,
+    forward: Vec2,
+    player: Vec2,
+    vehicle: Option<Vec2>,
+    in_vehicle: bool,
+    traffic_bodies: &[crate::physics::Body],
+    police_positions: &[Vec2],
+    car_index: usize,
+) -> bool {
+    let side = Vec2::new(-forward.y, forward.x);
+    let blocks_path = |position: Vec2| {
+        let relative = position - baseline;
+        let ahead = relative.dot(forward);
+        ahead > 0.0 && ahead < CAR_BRAKE_DISTANCE && relative.dot(side).abs() < CAR_LANE_GAP
+    };
+    let detection_yaw = forward.y.atan2(forward.x);
+    let braking_probe = crate::physics::Body::new(
+        baseline + forward * (CAR_BRAKE_DISTANCE * 0.5),
+        CAR_BRAKE_DISTANCE * 0.5 + crate::physics::VEHICLE_HALF_LENGTH,
+        crate::physics::VEHICLE_HALF_WIDTH,
+        detection_yaw,
+    );
+    blocks_path(player)
+        || (!in_vehicle && vehicle.map_or(false, |position| blocks_path(position)))
+        || police_positions
+            .iter()
+            .any(|position| blocks_path(*position))
+        || traffic_bodies.iter().enumerate().any(|(other, body)| {
+            other != car_index && crate::physics::bodies_overlap(&braking_probe, body)
+        })
+}
+
 pub(super) fn choose_safe_traffic_offset(
     current: Vec2,
     baseline: Vec2,
@@ -125,4 +158,37 @@ pub(super) fn choose_safe_traffic_offset(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod oriented_traffic_tests {
+    use super::*;
+
+    fn has_car_ahead(body: crate::physics::Body) -> bool {
+        traffic_obstacle_ahead_with_bodies(
+            Vec2::ZERO,
+            Vec2::X,
+            Vec2::new(200.0, 200.0),
+            None,
+            false,
+            &[body],
+            &[],
+            0,
+        )
+    }
+
+    #[test]
+    fn traffic_braking_sensor_respects_vehicle_orientation_and_clear_adjacent_lanes() {
+        let same_lane = crate::physics::Body::vehicle(Vec2::new(4.0, 0.0), 0.0);
+        assert!(has_car_ahead(same_lane));
+
+        let clear_adjacent_lane = crate::physics::Body::vehicle(Vec2::new(4.0, 2.0), 0.0);
+        assert!(!has_car_ahead(clear_adjacent_lane));
+
+        let crossing_lane = crate::physics::Body::vehicle(
+            Vec2::new(4.0, 1.8),
+            std::f32::consts::FRAC_PI_2,
+        );
+        assert!(has_car_ahead(crossing_lane));
+    }
 }
