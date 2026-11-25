@@ -10,3 +10,6 @@ mod tests {
     use super::*;
     include!("city_life/tests.rs");
 }
+
+#[cfg(test)]
+mod restore_tests;
