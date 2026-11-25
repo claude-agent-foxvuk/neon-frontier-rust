@@ -171,3 +171,50 @@ fn live_traffic_collision_knocks_down_pedestrian_and_raises_wanted_level() {
     assert_eq!(snapshot.wanted_level, 1);
     assert!(snapshot.traffic[0].stop_timer > 0.0);
 }
+
+#[test]
+fn live_player_vehicle_collision_knocks_down_pedestrian_and_raises_wanted_level() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(0.0, 0.65, 0.0),
+        vehicle_position: Vec3::new(0.0, 0.65, 0.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: true,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    world.spawn((
+        Transform::from_xyz(0.0, 0.82, 1.0),
+        Citizen {
+            origin: Vec3::new(0.0, 0.82, 1.0),
+            phase: 0.0,
+            speed: 0.0,
+            range: 0.0,
+            along_x: true,
+            displacement: Vec3::ZERO,
+            knock_velocity: Vec3::ZERO,
+            knocked: 0.0,
+            health: CITIZEN_HEALTH,
+            dead: false,
+        },
+    ));
+
+    world
+        .run_system_once(simulate_city_life)
+        .expect("live city simulation resolves player-vehicle-to-pedestrian contact");
+
+    let snapshot = &world.resource::<WorldState>().snapshot;
+    assert_eq!(snapshot.citizens.len(), 1);
+    assert!(snapshot.citizens[0].dead);
+    assert_eq!(snapshot.citizens[0].health, 0.0);
+    assert!(snapshot.citizens[0].knocked > 0.0);
+    assert_eq!(snapshot.wanted_level, 1);
+}
