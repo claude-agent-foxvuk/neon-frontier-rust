@@ -139,13 +139,13 @@ pub(super) fn simulate_city_life(
         let current = Vec2::new(transform.translation.x, transform.translation.z);
         let baseline = current - side * car.lane_offset;
         let road_center = (baseline.dot(side) / ROAD_SPACING).round() * ROAD_SPACING;
-        let blocked_ahead = traffic_obstacle_ahead(
+        let blocked_ahead = traffic_obstacle_ahead_with_bodies(
             baseline,
             forward,
             player_flat,
             parked_vehicle,
             probe.in_vehicle,
-            &car_positions,
+            &traffic_vehicle_bodies,
             &police_positions,
             index,
         );
