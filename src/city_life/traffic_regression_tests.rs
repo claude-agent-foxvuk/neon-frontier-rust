@@ -25,8 +25,8 @@ fn separated_crossing_traffic_pair_stays_stable_on_the_next_tick() {
 fn swept_vehicle_motion_stops_before_a_rotated_obstacle_without_tunneling() {
     let wall = Body::new(
         Vec2::new(4.0, 0.0),
-        0.25,
         5.0,
+        0.25,
         std::f32::consts::FRAC_PI_2,
     );
     let start = Vec2::ZERO;
