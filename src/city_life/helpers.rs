@@ -181,7 +181,12 @@ mod oriented_traffic_tests {
         )
     }
 
-    fn has_obstacle_at(position: Vec2, in_vehicle: bool, parked_vehicle: Option<Vec2>, police: &[Vec2]) -> bool {
+    fn has_obstacle_at(
+        position: Vec2,
+        in_vehicle: bool,
+        parked_vehicle: Option<Vec2>,
+        police: &[Vec2],
+    ) -> bool {
         traffic_obstacle_ahead_with_bodies(
             Vec2::ZERO,
             Vec2::X,
@@ -212,12 +217,16 @@ mod oriented_traffic_tests {
     #[test]
     fn traffic_braking_sensor_uses_body_shapes_for_player_parked_car_and_patrol() {
         let adjacent_lane = Vec2::new(4.0, 2.0);
+        let same_lane = Vec2::new(4.0, 0.0);
+        let far_away = Vec2::splat(200.0);
+
         assert!(!has_obstacle_at(adjacent_lane, false, None, &[]));
-        assert!(has_obstacle_at(Vec2::new(4.0, 0.0), false, None, &[]));
-        assert!(!has_obstacle_at(Vec2::new(200.0, 200.0), false, Some(adjacent_lane), &[]));
-        assert!(has_obstacle_at(Vec2::new(200.0, 200.0), false, Some(Vec2::new(4.0, 0.0)), &[]));
-        assert!(!has_obstacle_at(Vec2::new(200.0, 200.0), false, None, &[adjacent_lane]));
-        assert!(has_obstacle_at(Vec2::new(200.0, 200.0), false, None, &[Vec2::new(4.0, 0.0)]));
-        assert!(has_obstacle_at(adjacent_lane, true, None, &[]));
+        assert!(has_obstacle_at(same_lane, false, None, &[]));
+        assert!(!has_obstacle_at(far_away, false, Some(adjacent_lane), &[]));
+        assert!(has_obstacle_at(far_away, false, Some(same_lane), &[]));
+        assert!(!has_obstacle_at(far_away, false, None, &[adjacent_lane]));
+        assert!(has_obstacle_at(far_away, false, None, &[same_lane]));
+        assert!(!has_obstacle_at(adjacent_lane, true, None, &[]));
+        assert!(has_obstacle_at(same_lane, true, None, &[]));
     }
 }
