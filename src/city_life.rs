@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::physics::{bodies_overlap, Body};
+use crate::physics::{Body, bodies_overlap};
 
 const CITY_LIMIT: f32 = 160.0;
 const ROAD_SPACING: f32 = 48.0;
@@ -346,10 +346,7 @@ fn vehicle_body_from_forward(position: Vec3, forward: Vec3) -> Body {
 
 fn traffic_vehicle_body(transform: &Transform, along_x: bool, direction: f32) -> Body {
     let forward = (if along_x { Vec2::X } else { Vec2::Y }) * direction;
-    vehicle_body_from_forward(
-        transform.translation,
-        Vec3::new(forward.x, 0.0, forward.y),
-    )
+    vehicle_body_from_forward(transform.translation, Vec3::new(forward.x, 0.0, forward.y))
 }
 
 fn pedestrian_rotation(along_x: bool, direction: f32) -> Quat {
@@ -917,12 +914,7 @@ fn simulate_city_life(
     >,
     mut officers: Query<
         (&mut Transform, &mut FootOfficer, &mut Visibility),
-        (
-            Without<TrafficCar>,
-            Without<Citizen>,
-            Without<PolicePatrol>,
-            Without<PoliceSirenLight>,
-        ),
+        (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>),
     >,
     mut siren_lights: Query<(&mut Visibility, &PoliceSirenLight)>,
     mut muzzle_flashes: Query<
@@ -1455,10 +1447,7 @@ mod tests {
     fn oriented_vehicle_footprint_respects_a_ninety_degree_rotation() {
         let vehicle = traffic_vehicle_body(&Transform::from_xyz(0.0, 0.0, 0.0), false, 1.0);
 
-        assert!(bodies_overlap(
-            &vehicle,
-            &Body::person(Vec2::new(0.0, 1.8)),
-        ));
+        assert!(bodies_overlap(&vehicle, &Body::person(Vec2::new(0.0, 1.8)),));
         assert!(!bodies_overlap(
             &vehicle,
             &Body::person(Vec2::new(1.5, 0.0)),
