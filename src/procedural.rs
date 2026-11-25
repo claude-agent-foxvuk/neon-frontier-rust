@@ -52,9 +52,8 @@ fn noise(x: u32, y: u32, salt: u32) -> u8 {
 }
 
 fn fine_grain(x: u32, y: u32, salt: u32) -> i16 {
-    let mut value = x.wrapping_mul(0x9E37_79B9)
-        ^ y.wrapping_mul(0x85EB_CA6B)
-        ^ salt.wrapping_mul(0xC2B2_AE35);
+    let mut value =
+        x.wrapping_mul(0x9E37_79B9) ^ y.wrapping_mul(0x85EB_CA6B) ^ salt.wrapping_mul(0xC2B2_AE35);
     value ^= value >> 15;
     value = value.wrapping_mul(0x2C1B_3C6D);
     value ^= value >> 12;
@@ -208,7 +207,12 @@ fn pixels(mut color_at: impl FnMut(u32, u32) -> [u8; 4]) -> Vec<u8> {
     for y in 0..TILE_SIZE {
         let first = (y * TILE_SIZE * 4) as usize;
         let last = (y * TILE_SIZE + TILE_SIZE - 1) as usize * 4;
-        let edge = [data[first], data[first + 1], data[first + 2], data[first + 3]];
+        let edge = [
+            data[first],
+            data[first + 1],
+            data[first + 2],
+            data[first + 3],
+        ];
         data[last..last + 4].copy_from_slice(&edge);
     }
     let row_bytes = (TILE_SIZE * 4) as usize;
