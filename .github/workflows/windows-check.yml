@@ -58,6 +58,9 @@ jobs:
           if ($log -match 'error\[B000') {
             throw 'Bevy reported an ECS query conflict during startup, which crashes the game for players.'
           }
+          if ($log -match 'warning\[B0004\]') {
+            throw 'Bevy reported a missing inherited-visibility component during startup.'
+          }
           if ($exitedEarly) {
             throw "The game exited during the 10-second startup smoke window with code $($process.ExitCode). See captured logs above."
           }
