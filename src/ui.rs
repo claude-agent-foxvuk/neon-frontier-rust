@@ -38,7 +38,7 @@ fn option_label(option: MenuOption) -> &'static str {
     match option {
         MenuOption::NewGame => "Новая игра",
         MenuOption::LoadGame => "Загрузить сохранение",
-        MenuOption::Credits => "Кредитс",
+        MenuOption::Credits => "Титры",
     }
 }
 
@@ -56,7 +56,7 @@ pub fn menu_index_at_cursor(position: Vec2) -> Option<usize> {
 
 pub fn main_menu_text(selected: usize, credits_open: bool, notice: &str) -> String {
     if credits_open {
-        let mut text = String::from("NEON FRONTIER\n\nКРЕДИТС\n\n");
+        let mut text = String::from("NEON FRONTIER\n\nТИТРЫ\n\n");
         text.push_str("Открытый мир на Rust и Bevy для Windows 11\n");
         text.push_str(SHORT_CREDITS);
         text.push_str("\n\n");
@@ -185,7 +185,7 @@ mod tests {
         let menu = main_menu_text(0, false, "");
         assert!(menu.contains("Новая игра"));
         assert!(menu.contains("Загрузить сохранение"));
-        assert!(menu.contains("Кредитс"));
+        assert!(menu.contains("Титры"));
         assert!(menu.contains(SHORT_CREDITS));
         assert!(menu.contains("Enter"));
     }
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn credits_screen_names_the_authors_and_returns_hint() {
         let credits = main_menu_text(0, true, "");
-        assert!(credits.contains("КРЕДИТС"));
+        assert!(credits.contains("ТИТРЫ"));
         assert!(credits.contains(SHORT_CREDITS));
         assert!(credits.contains("назад в меню"));
         assert!(!credits.contains("> Новая игра"));
