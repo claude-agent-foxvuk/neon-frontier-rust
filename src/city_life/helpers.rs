@@ -205,7 +205,7 @@ mod oriented_traffic_tests {
             false,
             &[body],
             &[],
-            0,
+            1,
         )
     }
 
