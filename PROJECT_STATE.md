@@ -1,27 +1,26 @@
 # Neon Frontier — project state
 
-Last checked: 2026-11-25 18:35 UTC. Source of truth: `main`, repository files, and GitHub Actions. `FEATURES.md` lists existing code; `TODO.md` tracks open work by priority.
+Last checked: 2026-11-25 18:55 UTC. Source of truth: `main`, repository files and GitHub Actions. `FEATURES.md` lists code already present; `TODO.md` tracks open work by priority.
 
 ## Scope and decisions
-- Windows 11, Rust 1.100+, Bevy 0.20.1; an original compact open-world action-driving prototype.
-- Save format stays `NEON_FRONTIER_SAVE_V1`.
+- Windows 11, Rust 1.100+, Bevy 0.20.1; original compact open-world action-driving prototype.
+- Save format remains `NEON_FRONTIER_SAVE_V1`.
 - No coding agents or paid services. Commit directly through GitHub API to `claude-agent-foxvuk/neon-frontier-rust`.
-- P3 witness/streaming behavior, beach and water remain deferred until higher-priority TODO items are done.
+- P3 witness/streaming behavior, beach and water stay deferred until higher-priority TODO items are done.
 - GitHub reports this repository as public.
 
 ## Current code and checks
-- Last observed `main` before this state-file commit was `6b0c23791ba9cd7c788b904edd014bb7b403f009`. Latest gameplay SHA is `c201365c09c8f65417c8391ec28121683a085702`, including 512×512 procedural surfaces.
-- The comparison from gameplay SHA `c201365c09c8f65417c8391ec28121683a085702` to the earlier docs HEAD `4ae93bf815b27d5aad57ff70f7363422abaf00ff` showed documentation changes only. Read-back after the current docs refresh confirms README, FEATURES and TODO were updated; no gameplay source was changed in these documentation commits.
-- Run #107 passed formatting, ECS release tests, release build, 10-second Windows startup smoke and artifact upload on gameplay SHA `c201365c09c8f65417c8391ec28121683a085702`. Artifact `neon-frontier-windows-x64`: 29,867,514 bytes. The smoke ran on a Windows Actions runner, not Fox's laptop.
-- Runs #105 and #106 also passed all stages. Their artifacts were 29,867,227 and 29,867,226 bytes.
-- A Windows workflow on the documentation HEAD after the latest read-back has not yet appeared in the runs list. The exact current-HEAD Windows result therefore remains pending; the game code itself matches #107's tested tree.
-- The `sun_peaks_at_noon_and_bottoms_out_at_midnight` comparison is corrected; #107 passed the test suite with ECS diagnostics.
-- A successful runner smoke does not replace Fox's manual Windows 11 launch and gameplay check.
+- Current `main`: `848c5a1b1bc44cb486c0a21b872216ef67db90c9`. This adds an in-crate ECS regression for traffic hitting a pedestrian; it is committed and read back, but its test result is pending.
+- Run #108 completed successfully on `b3432d33788d1336b966dfdbc625c2cc5447af28`; prior read reported format, ECS release tests, release build, 10-second Windows startup smoke, and artifact upload passed. Artifact `neon-frontier-windows-x64`: 29,867,513 bytes. This is an older SHA, not current `main`.
+- Run #109 on `a1d544601ac483a16027ac36f6330d89549b0555` remains in progress. Formatting passed; `Test with ECS diagnostics` was running at 18:55 UTC. Build, smoke and artifact are not yet confirmed.
+- Run #110 on `1b1381b3981d5e9d11c6adb3c7e4ce689ed112a1` remains in progress. Formatting passed; ECS release tests were running at 18:55 UTC. Build, smoke and artifact are not yet confirmed.
+- Run #111 started on current SHA `848c5a1b1bc44cb486c0a21b872216ef67db90c9`; its test, build, smoke and artifact results are pending.
+- The newest test commit adds regression coverage only; it does not complete the remaining gameplay requirements or verify the game on Fox's Windows 11 laptop.
+- At the last TODO read, 24 items remained open: 23 gameplay requirements plus a Windows check on the exact current `main`. P3 is deferred. No new gameplay item is marked complete by an unpassed test.
 
 ## Remaining work
-- `TODO.md` has 24 open items: 23 gameplay requirements across P0–P3 plus one Windows check on the exact current `main`.
-- Highest priorities remain complete ECS OBB integration, stable vehicle pair separation, in-game collision regression tests, vehicle handling, police behavior, menu/F5/F9 integration checks, and missions/events. P3 remains deferred.
-- Manual launch and gameplay by Fox on Windows 11, including Russian text, menu, F5/F9, collisions, police and performance, remain unverified.
-- Require passing formatting, tests, build, startup smoke and artifact upload on the exact current `main` before claiming that the current-HEAD workflow is green.
+- Priorities above P3: complete ECS OBB integration, stable vehicle-pair behavior, game-level collision regressions, vehicle handling, police behavior, menu/F5/F9 integration checks, missions and events, HUD scaling, graphics/performance validation.
+- Manually launch and test the current Windows EXE on Fox's Windows 11 laptop, including Russian text, menu, F5/F9, collisions, police and performance.
+- Require formatting, tests, release build, Windows startup smoke and artifact upload on the exact current `main` before claiming the current-HEAD workflow is green.
 
 A successful compile or an older green run does not complete the remaining gameplay work.
