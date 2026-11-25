@@ -1,0 +1,518 @@
+use bevy::prelude::*;
+
+use crate::physics::bodies_overlap;
+
+use super::*;
+
+pub(super) fn simulate_city_life(
+    time: Res<Time>,
+    mut probe: ResMut<PlayerProbe>,
+    mut bodies: ResMut<TrafficBodies>,
+    mut wanted: ResMut<WantedState>,
+    mut world: ResMut<WorldState>,
+    mut restore: ResMut<WorldRestore>,
+    mut traffic: Query<
+        (&mut Transform, &mut TrafficCar),
+        (
+            Without<Citizen>,
+            Without<PolicePatrol>,
+            Without<FootOfficer>,
+        ),
+    >,
+    mut citizens: Query<
+        (&mut Transform, &mut Citizen),
+        (
+            Without<TrafficCar>,
+            Without<PolicePatrol>,
+            Without<FootOfficer>,
+        ),
+    >,
+    mut patrols: Query<
+        (&mut Transform, &mut PolicePatrol),
+        (Without<TrafficCar>, Without<Citizen>, Without<FootOfficer>),
+    >,
+    mut officers: Query<
+        (&mut Transform, &mut FootOfficer, &mut Visibility),
+        (
+            Without<TrafficCar>,
+            Without<Citizen>,
+            Without<PolicePatrol>,
+            Without<PoliceSirenLight>,
+        ),
+    >,
+    mut siren_lights: Query<
+        (&mut Visibility, &PoliceSirenLight),
+        (Without<FootOfficer>, Without<OfficerMuzzleFlash>),
+    >,
+    mut muzzle_flashes: Query<
+        (&mut Visibility, &mut OfficerMuzzleFlash),
+        (
+            Without<TrafficCar>,
+            Without<Citizen>,
+            Without<PolicePatrol>,
+            Without<FootOfficer>,
+            Without<PoliceSirenLight>,
+        ),
+    >,
+) {
+    let dt = time.delta_secs().min(0.05);
+    if dt <= 0.0 {
+        return;
+    }
+    if let Some(snapshot) = restore.0.take() {
+        restore_world(
+            &snapshot,
+            &mut probe,
+            &mut wanted,
+            &mut traffic,
+            &mut citizens,
+            &mut patrols,
+            &mut officers,
+        );
+    }
+    let now = time.elapsed_secs();
+    let player = probe.position;
+    let player_flat = Vec2::new(player.x, player.z);
+    let parked_vehicle = if probe.in_vehicle {
+        None
+    } else {
+        Some(Vec2::new(
+            probe.vehicle_position.x,
+            probe.vehicle_position.z,
+        ))
+    };
+    let player_radius = if probe.in_vehicle {
+        CAR_BODY_RADIUS
+    } else {
+        0.5
+    };
+    let punching = probe.punch;
+    let player_forward = if probe.forward.length_squared() > 1.0e-6 {
+        probe.forward.normalize()
+    } else {
+        Vec3::NEG_Z
+    };
+    let player_vehicle_body = probe
+        .in_vehicle
+        .then(|| vehicle_body_from_forward(player, player_forward));
+    let mut player_incident = false;
+    let mut car_positions: Vec<Vec3> = traffic
+        .iter()
+        .map(|(transform, _)| transform.translation)
+        .collect();
+    let mut traffic_vehicle_bodies: Vec<Body> = traffic
+        .iter()
+        .map(|(transform, car)| traffic_vehicle_body(transform, car.along_x, car.direction))
+        .collect();
+    let citizen_positions: Vec<Vec3> = citizens
+        .iter()
+        .map(|(transform, _)| transform.translation)
+        .collect();
+    let police_positions: Vec<Vec2> = patrols
+        .iter()
+        .map(|(transform, _)| Vec2::new(transform.translation.x, transform.translation.z))
+        .collect();
+    let mut knock_events: Vec<(usize, Vec3)> = Vec::with_capacity(4);
+    let mut car_bodies: Vec<(Vec2, f32)> = Vec::with_capacity(car_positions.len() + 2);
+
+    for (index, (mut transform, mut car)) in traffic.iter_mut().enumerate() {
+        car.stop_timer = (car.stop_timer - dt).max(0.0);
+        let forward = (if car.along_x { Vec3::X } else { Vec3::Z }) * car.direction;
+        let forward = Vec2::new(forward.x, forward.z);
+        let side = Vec2::new(-forward.y, forward.x);
+        let current = Vec2::new(transform.translation.x, transform.translation.z);
+        let baseline = current - side * car.lane_offset;
+        let road_center = (baseline.dot(side) / ROAD_SPACING).round() * ROAD_SPACING;
+        let blocked_ahead = traffic_obstacle_ahead(
+            baseline,
+            forward,
+            player_flat,
+            parked_vehicle,
+            probe.in_vehicle,
+            &car_positions,
+            &police_positions,
+            index,
+        );
+        let blocks_movement = |point: Vec2| {
+            point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
+                || parked_vehicle.map_or(false, |vehicle| {
+                    point.distance(vehicle) < CAR_BODY_RADIUS * 2.0
+                })
+                || police_positions
+                    .iter()
+                    .any(|center| center.distance(point) < CAR_BODY_RADIUS * 2.0)
+                || traffic_vehicle_bodies
+                    .iter()
+                    .enumerate()
+                    .any(|(other, body)| {
+                        other != index && body.contains_point(point, CAR_BODY_RADIUS)
+                    })
+        };
+
+        if blocked_ahead {
+            match choose_safe_traffic_offset(
+                current,
+                baseline,
+                side,
+                road_center,
+                ROAD_HALF_WIDTH,
+                |point| blocks_movement(point),
+            ) {
+                Some(offset) => car.avoid_offset = offset,
+                None => {
+                    car.avoid_offset = car.lane_offset;
+                    car.stop_timer = car.stop_timer.max(0.2);
+                }
+            }
+        } else {
+            car.avoid_offset = 0.0;
+        }
+
+        if car.stop_timer <= 0.0 {
+            let lateral_step = (car.avoid_offset - car.lane_offset)
+                .clamp(-car.speed.abs() * dt, car.speed.abs() * dt);
+            let lateral_target = current + side * lateral_step;
+            let shifted = crate::physics::move_with_slide(current, side * lateral_step, |point| {
+                city_collision(point, CAR_BODY_RADIUS) || blocks_movement(point)
+            });
+            let lateral_clear = shifted.distance(lateral_target) < 0.05;
+            car.lane_offset += (shifted - current).dot(side);
+            let mut candidate = shifted;
+
+            // Do not move forward into the obstacle while still crossing lanes.
+            let has_passing_clearance = car.lane_offset.abs() >= CAR_PASSING_OFFSET - 0.1;
+            if lateral_clear && (!blocked_ahead || has_passing_clearance) {
+                let delta = forward * car.speed * dt;
+                candidate = crate::physics::move_with_slide(candidate, delta, |point| {
+                    city_collision(point, CAR_BODY_RADIUS) || blocks_movement(point)
+                });
+                if candidate.distance(shifted) < delta.length() * 0.5 && blocked_ahead {
+                    car.stop_timer = 0.2;
+                }
+            }
+            transform.translation.x = candidate.x;
+            transform.translation.z = candidate.y;
+            car_positions[index] = transform.translation;
+        }
+        traffic_vehicle_bodies[index] =
+            traffic_vehicle_body(&transform, car.along_x, car.direction);
+        for (citizen_index, position) in citizen_positions.iter().enumerate() {
+            let person_body = Body::person(Vec2::new(position.x, position.z));
+            if bodies_overlap(&traffic_vehicle_bodies[index], &person_body) {
+                let flat = Vec2::new(
+                    transform.translation.x - position.x,
+                    transform.translation.z - position.z,
+                );
+                let push = if flat.length() > 1.0e-4 {
+                    flat.normalize()
+                } else {
+                    Vec2::Y
+                };
+                let velocity = Vec3::new(push.x, 0.0, push.y) * (KNOCK_SPEED + car.speed * 0.35)
+                    + Vec3::Y * KNOCK_LIFT;
+                knock_events.push((citizen_index, velocity));
+                car.stop_timer = CAR_STOP_SECONDS;
+            }
+        }
+        car_bodies.push((
+            Vec2::new(transform.translation.x, transform.translation.z),
+            CAR_BODY_RADIUS,
+        ));
+    }
+
+    let mut citizen_index = 0;
+    for (mut transform, mut citizen) in &mut citizens {
+        let index = citizen_index;
+        citizen_index += 1;
+        if citizen.dead {
+            continue;
+        }
+        let phase = now * citizen.speed + citizen.phase;
+        let offset = phase.sin() * citizen.range;
+        let direction = if phase.cos() >= 0.0 { 1.0 } else { -1.0 };
+        let along = if citizen.along_x { Vec3::X } else { Vec3::Z };
+        let base = citizen.origin + along * offset;
+        let current = base + citizen.displacement;
+        let mut impact_velocity = Vec3::ZERO;
+        let mut impact_damage = 0.0;
+        for (target, velocity) in &knock_events {
+            if *target == index {
+                impact_velocity = *velocity;
+                impact_damage = CITIZEN_HEALTH;
+            }
+        }
+        for (other, position) in citizen_positions.iter().enumerate() {
+            if other == index {
+                continue;
+            }
+            let flat = Vec2::new(current.x - position.x, current.z - position.z);
+            let distance = flat.length();
+            if distance < CITIZEN_BODY_RADIUS * 2.0 && distance > 1.0e-4 {
+                let push = flat.normalize();
+                let overlap = CITIZEN_BODY_RADIUS * 2.0 - distance;
+                citizen.displacement += Vec3::new(push.x, 0.0, push.y) * overlap * 0.5;
+            }
+        }
+        let to_player = Vec2::new(current.x - player.x, current.z - player.z);
+        let player_distance = to_player.length();
+        let person_body = Body::person(Vec2::new(current.x, current.z));
+        if player_vehicle_body
+            .as_ref()
+            .map_or(false, |vehicle| bodies_overlap(vehicle, &person_body))
+        {
+            let push = if player_distance > 1.0e-4 {
+                to_player.normalize()
+            } else {
+                Vec2::Y
+            };
+            impact_velocity = Vec3::new(push.x, 0.0, push.y) * KNOCK_SPEED + Vec3::Y * KNOCK_LIFT;
+            impact_damage = CITIZEN_HEALTH;
+            player_incident = true;
+        } else if punching && player_distance < PUNCH_RANGE && player_distance > 1.0e-4 {
+            let to_citizen = Vec3::new(current.x - player.x, 0.0, current.z - player.z);
+            let aim = to_citizen.normalize().dot(player_forward);
+            if aim > PUNCH_CONE || player_distance < BODY_PUSH {
+                impact_velocity = to_citizen.normalize() * PUNCH_KNOCK + Vec3::Y * KNOCK_LIFT;
+                impact_damage = 1.0;
+                player_incident = true;
+            }
+        }
+        if impact_damage > 0.0 {
+            damage_citizen(&mut citizen, impact_damage);
+            citizen.knocked = KNOCK_SECONDS;
+            citizen.knock_velocity = impact_velocity;
+        }
+        if citizen.knocked > 0.0 {
+            let mut displacement = citizen.displacement;
+            let mut velocity = citizen.knock_velocity;
+            let mut knocked = citizen.knocked;
+            resolve_knock(&mut displacement, &mut velocity, &mut knocked, dt);
+            citizen.displacement = displacement;
+            citizen.knock_velocity = velocity;
+            citizen.knocked = knocked;
+        } else {
+            citizen.displacement = citizen.displacement.lerp(Vec3::ZERO, (dt * 3.0).min(1.0));
+            citizen.knock_velocity = Vec3::ZERO;
+        }
+        let fallen = if citizen.dead {
+            1.0
+        } else if citizen.knocked > 0.0 {
+            (citizen.knocked / KNOCK_SECONDS).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let path_rotation = pedestrian_rotation(citizen.along_x, direction);
+        transform.translation = base + citizen.displacement - Vec3::Y * (FALL_TILT * fallen);
+        transform.rotation =
+            path_rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2 * fallen);
+    }
+
+    wanted.tick(dt, player_incident);
+    for (mut visibility, siren) in &mut siren_lights {
+        *visibility = if police_siren_visible(wanted.level, siren.phase, now) {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+    for (index, (mut transform, patrol)) in (&mut patrols).into_iter().enumerate() {
+        let position = Vec2::new(transform.translation.x, transform.translation.z);
+        let tactics = if wanted.level > 0 {
+            Some(police_tactics(wanted.level, index, now))
+        } else {
+            None
+        };
+        let target = if let Some(tactics) = tactics {
+            if wanted.level >= 2 {
+                player_flat
+            } else {
+                let to_player = player_flat - position;
+                let side = Vec2::new(-to_player.y, to_player.x).normalize_or_zero();
+                let flank_side = if index % 2 == 0 { 1.0 } else { -1.0 };
+                let search_phase = now * (0.45 + wanted.level as f32 * 0.08) + patrol.phase;
+                let search_offset =
+                    Vec2::new(search_phase.cos(), search_phase.sin()) * tactics.search_radius;
+                player_flat + side * (tactics.flank_distance * flank_side) + search_offset
+            }
+        } else {
+            patrol.home
+                + Vec2::new(
+                    (now * 0.35 + patrol.phase).sin() * 8.0,
+                    (now * 0.28 + patrol.phase).cos() * 5.0,
+                )
+        };
+        let delta = target - position;
+        let distance = delta.length();
+        let stop_distance = if wanted.level >= 2 {
+            9.0
+        } else {
+            tactics.map_or(5.5, |tactics| tactics.stop_distance)
+        };
+        if distance > stop_distance {
+            let speed = tactics.map_or(2.4, |tactics| tactics.speed);
+            let movement = delta.normalize() * (speed * dt).min(distance - stop_distance);
+            let mut blockers: Vec<Vec2> = car_positions
+                .iter()
+                .map(|car| Vec2::new(car.x, car.z))
+                .collect();
+            blockers.extend(
+                police_positions
+                    .iter()
+                    .enumerate()
+                    .filter(|(other, _)| *other != index)
+                    .map(|(_, position)| *position),
+            );
+            let next = crate::physics::move_with_slide(position, movement, |point| {
+                city_collision(point, CAR_BODY_RADIUS)
+                    || point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
+                    || blockers
+                        .iter()
+                        .any(|center| center.distance(point) < CAR_BODY_RADIUS * 2.0)
+            });
+            let step = next - position;
+            transform.translation.x = next.x;
+            transform.translation.z = next.y;
+            if step.length_squared() > 1.0e-5 {
+                transform.rotation = Quat::from_rotation_y(step.x.atan2(step.y));
+            }
+        }
+        car_bodies.push((
+            Vec2::new(transform.translation.x, transform.translation.z),
+            CAR_BODY_RADIUS + 0.25,
+        ));
+    }
+
+    let updated_patrol_positions: Vec<Vec2> = patrols
+        .iter()
+        .map(|(transform, _)| Vec2::new(transform.translation.x, transform.translation.z))
+        .collect();
+    let mut shots_fired = Vec::new();
+    for (mut transform, mut officer, mut visibility) in &mut officers {
+        if wanted.level < 2 {
+            officer.active = false;
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+        if !officer.active {
+            let patrol_position = updated_patrol_positions
+                .get(officer.patrol_index)
+                .copied()
+                .unwrap_or(player_flat);
+            let side = if officer.patrol_index % 2 == 0 {
+                Vec2::X
+            } else {
+                -Vec2::X
+            };
+            transform.translation = Vec3::new(
+                patrol_position.x + side.x * (CAR_BODY_RADIUS + OFFICER_BODY_RADIUS + 0.35),
+                0.82,
+                patrol_position.y + side.y * (CAR_BODY_RADIUS + OFFICER_BODY_RADIUS + 0.35),
+            );
+            officer.active = true;
+        }
+        *visibility = Visibility::Visible;
+
+        let position = Vec2::new(transform.translation.x, transform.translation.z);
+        let to_player = player_flat - position;
+        let distance = to_player.length();
+        let movement = if distance > OFFICER_STOP_DISTANCE {
+            to_player.normalize() * (OFFICER_SPEED * dt).min(distance - OFFICER_STOP_DISTANCE)
+        } else if distance < OFFICER_RETREAT_DISTANCE {
+            -to_player.normalize() * (OFFICER_SPEED * dt).min(OFFICER_RETREAT_DISTANCE - distance)
+        } else {
+            Vec2::ZERO
+        };
+        let mut next = position;
+        if movement.length_squared() > 0.0 {
+            let mut blockers: Vec<Vec2> = car_positions
+                .iter()
+                .map(|car| Vec2::new(car.x, car.z))
+                .collect();
+            blockers.extend(updated_patrol_positions.iter().copied());
+            next = crate::physics::move_with_slide(position, movement, |point| {
+                city_collision(point, OFFICER_BODY_RADIUS)
+                    || point.distance(player_flat) < OFFICER_BODY_RADIUS + player_radius
+                    || blockers.iter().any(|center| {
+                        center.distance(point) < CAR_BODY_RADIUS + OFFICER_BODY_RADIUS
+                    })
+            });
+        }
+        transform.translation.x = next.x;
+        transform.translation.z = next.y;
+        let facing = player_flat - next;
+        if facing.length_squared() > 1.0e-5 {
+            transform.rotation = Quat::from_rotation_y(facing.x.atan2(facing.y));
+        }
+
+        officer.shot_timer = (officer.shot_timer - dt).max(0.0);
+        let officer_distance = next.distance(player_flat);
+        let clear_line = police_line_of_sight_clear(next, player_flat);
+        if officer.shot_timer <= 0.0 && can_police_shoot(officer_distance, clear_line) {
+            damage_player(&mut probe, POLICE_SHOT_DAMAGE);
+            officer.shot_timer = POLICE_SHOT_COOLDOWN;
+            shots_fired.push(officer.patrol_index);
+        }
+    }
+    for (mut visibility, mut flash) in &mut muzzle_flashes {
+        if wanted.level < 2 {
+            flash.remaining = 0.0;
+        } else if shots_fired.contains(&flash.patrol_index) {
+            flash.remaining = POLICE_MUZZLE_FLASH_SECONDS;
+        } else {
+            flash.remaining = (flash.remaining - dt).max(0.0);
+        }
+        *visibility = if flash.remaining > 0.0 {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+    bodies.cars = car_bodies;
+    probe.punch = false;
+
+    let mut snapshot = WorldSnapshot {
+        health: probe.health,
+        wanted_level: wanted.level,
+        wanted_timer: wanted.decay_timer,
+        ..Default::default()
+    };
+    for (transform, car) in &mut traffic {
+        snapshot.traffic.push(TrafficSave {
+            position: transform.translation,
+            speed: car.speed,
+            direction: car.direction,
+            along_x: car.along_x,
+            lane_offset: car.lane_offset,
+            avoid_offset: car.avoid_offset,
+            stop_timer: car.stop_timer,
+        });
+    }
+    for (_, citizen) in &mut citizens {
+        snapshot.citizens.push(CitizenSave {
+            origin: citizen.origin,
+            phase: citizen.phase,
+            speed: citizen.speed,
+            range: citizen.range,
+            along_x: citizen.along_x,
+            displacement: citizen.displacement,
+            knock_velocity: citizen.knock_velocity,
+            knocked: citizen.knocked,
+            health: citizen.health,
+            dead: citizen.dead,
+        });
+    }
+    for (transform, patrol) in &mut patrols {
+        snapshot.patrols.push(PatrolSave {
+            position: transform.translation,
+            phase: patrol.phase,
+        });
+    }
+    for (transform, officer, _) in &mut officers {
+        snapshot.officers.push(OfficerSave {
+            position: transform.translation,
+            active: officer.active,
+            shot_timer: officer.shot_timer,
+        });
+    }
+    world.snapshot = snapshot;
+}
