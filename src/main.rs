@@ -505,10 +505,7 @@ fn setup(
         });
 
     commands
-        .spawn((
-            Transform::from_translation(game.car),
-            CarVisual,
-        ))
+        .spawn((Transform::from_translation(game.car), CarVisual))
         .with_children(|parent| {
             parent.spawn((
                 Mesh3d(cube.clone()),
@@ -738,6 +735,7 @@ fn snapshot_from_game(game: &Game) -> save::Snapshot {
         credits: game.credits,
         driving: game.driving,
         bloom: game.bloom,
+        world_time: game.world_time,
         world: city_life::WorldSnapshot::default(),
     }
 }
@@ -793,6 +791,7 @@ fn load_game(
     game.driving = snapshot.driving;
     game.paused = false;
     game.bloom = snapshot.bloom;
+    game.world_time = snapshot.world_time;
     game.camera_yaw = snapshot.camera_yaw;
     game.camera_orbit = snapshot.camera_orbit;
     game.camera_pitch = snapshot.camera_pitch;
@@ -1450,11 +1449,7 @@ mod tests {
     fn traffic_cars_block_the_player() {
         let cars = vec![(Vec2::new(4.0, 0.0), 2.2)];
         assert!(blocked_by_traffic(&cars, Vec3::new(5.0, 0.0, 0.0), 0.45));
-        assert!(!blocked_by_traffic(
-            &cars,
-            Vec3::new(12.0, 0.0, 0.0),
-            0.45
-        ));
+        assert!(!blocked_by_traffic(&cars, Vec3::new(12.0, 0.0, 0.0), 0.45));
     }
 
     #[test]
