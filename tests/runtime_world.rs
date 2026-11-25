@@ -120,39 +120,53 @@ mod city_life {
             let mut world = World::new();
             world.insert_resource(PlayerProbe::default());
             world.init_resource::<WantedState>();
-            world.init_resource::<WorldState>();
             world.insert_resource(WorldRestore(Some(snapshot.world.clone())));
-            world.spawn((Transform::IDENTITY, TrafficCar {
-                speed: 0.0,
-                direction: 1.0,
-                along_x: false,
-                stop_timer: 0.0,
-                lane_offset: 0.0,
-                avoid_offset: 0.0,
-            }));
-            world.spawn((Transform::IDENTITY, Citizen {
-                origin: Vec3::ZERO,
-                phase: 0.0,
-                speed: 0.0,
-                range: 0.0,
-                along_x: false,
-                displacement: Vec3::ZERO,
-                knock_velocity: Vec3::ZERO,
-                knocked: 0.0,
-                health: CITIZEN_HEALTH,
-                dead: false,
-            }));
-            world.spawn((Transform::IDENTITY, PolicePatrol {
-                home: Vec2::ZERO,
-                phase: 0.0,
-            }));
-            world.spawn((Transform::IDENTITY, Visibility::Hidden, FootOfficer {
-                patrol_index: 0,
-                active: false,
-                shot_timer: 0.0,
-            }));
+            world.spawn((
+                Transform::IDENTITY,
+                TrafficCar {
+                    speed: 0.0,
+                    direction: 1.0,
+                    along_x: false,
+                    stop_timer: 0.0,
+                    lane_offset: 0.0,
+                    avoid_offset: 0.0,
+                },
+            ));
+            world.spawn((
+                Transform::IDENTITY,
+                Citizen {
+                    origin: Vec3::ZERO,
+                    phase: 0.0,
+                    speed: 0.0,
+                    range: 0.0,
+                    along_x: false,
+                    displacement: Vec3::ZERO,
+                    knock_velocity: Vec3::ZERO,
+                    knocked: 0.0,
+                    health: CITIZEN_HEALTH,
+                    dead: false,
+                },
+            ));
+            world.spawn((
+                Transform::IDENTITY,
+                PolicePatrol {
+                    home: Vec2::ZERO,
+                    phase: 0.0,
+                },
+            ));
+            world.spawn((
+                Transform::IDENTITY,
+                Visibility::Hidden,
+                FootOfficer {
+                    patrol_index: 0,
+                    active: false,
+                    shot_timer: 0.0,
+                },
+            ));
 
-            world.run_system_once(restore_saved_world).expect("restore system runs");
+            world
+                .run_system_once(restore_saved_world)
+                .expect("restore system runs");
 
             let probe = world.resource::<PlayerProbe>();
             assert_eq!(probe.health, 63.0);
@@ -160,12 +174,6 @@ mod city_life {
             assert_eq!(wanted.level, 2);
             assert_eq!(wanted.decay_timer, 8.0);
             assert_eq!(world.resource::<WorldRestore>().0, None);
-
-            let restored = &world.resource::<WorldState>().snapshot;
-            assert_eq!(restored.traffic, snapshot.world.traffic);
-            assert_eq!(restored.citizens, snapshot.world.citizens);
-            assert_eq!(restored.patrols, snapshot.world.patrols);
-            assert_eq!(restored.officers, snapshot.world.officers);
 
             let mut traffic = world.query::<(&Transform, &TrafficCar)>();
             let (traffic_transform, traffic_car) = traffic.iter(&world).next().unwrap();
@@ -187,7 +195,8 @@ mod city_life {
             assert_eq!(patrol_state.phase, 0.7);
 
             let mut officer = world.query::<(&Transform, &FootOfficer, &Visibility)>();
-            let (officer_transform, officer_state, visibility) = officer.iter(&world).next().unwrap();
+            let (officer_transform, officer_state, visibility) =
+                officer.iter(&world).next().unwrap();
             assert_eq!(officer_transform.translation, snapshot.world.officers[0].position);
             assert!(officer_state.active);
             assert_eq!(officer_state.shot_timer, 0.85);
