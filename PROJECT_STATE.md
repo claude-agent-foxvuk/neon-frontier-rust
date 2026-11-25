@@ -1,6 +1,6 @@
 # Neon Frontier — project state
 
-Last checked: 2026-11-25 18:55 UTC. Source of truth: `main`, repository files and GitHub Actions. `FEATURES.md` lists code already present; `TODO.md` tracks open work by priority.
+Last checked: 2026-11-25 19:08 UTC. Source of truth: `main`, repository files and GitHub Actions. `FEATURES.md` lists code already present; `TODO.md` tracks open work by priority.
 
 ## Scope and decisions
 - Windows 11, Rust 1.100+, Bevy 0.20.1; original compact open-world action-driving prototype.
@@ -9,14 +9,14 @@ Last checked: 2026-11-25 18:55 UTC. Source of truth: `main`, repository files an
 - P3 witness/streaming behavior, beach and water stay deferred until higher-priority TODO items are done.
 - GitHub reports this repository as public.
 
-## Current code and checks
-- Current `main`: `848c5a1b1bc44cb486c0a21b872216ef67db90c9`. This adds an in-crate ECS regression for traffic hitting a pedestrian; it is committed and read back, but its test result is pending.
-- Run #108 completed successfully on `b3432d33788d1336b966dfdbc625c2cc5447af28`; prior read reported format, ECS release tests, release build, 10-second Windows startup smoke, and artifact upload passed. Artifact `neon-frontier-windows-x64`: 29,867,513 bytes. This is an older SHA, not current `main`.
-- Run #109 on `a1d544601ac483a16027ac36f6330d89549b0555` remains in progress. Formatting passed; `Test with ECS diagnostics` was running at 18:55 UTC. Build, smoke and artifact are not yet confirmed.
-- Run #110 on `1b1381b3981d5e9d11c6adb3c7e4ce689ed112a1` remains in progress. Formatting passed; ECS release tests were running at 18:55 UTC. Build, smoke and artifact are not yet confirmed.
-- Run #111 started on current SHA `848c5a1b1bc44cb486c0a21b872216ef67db90c9`; its test, build, smoke and artifact results are pending.
-- The newest test commit adds regression coverage only; it does not complete the remaining gameplay requirements or verify the game on Fox's Windows 11 laptop.
-- At the last TODO read, 24 items remained open: 23 gameplay requirements plus a Windows check on the exact current `main`. P3 is deferred. No new gameplay item is marked complete by an unpassed test.
+## Code and checks
+- Last code SHA read before this document update: `2c1aabacd412db90c154dcaeafd1ea029925017c`. The prior commit `6da5ce5ad63d3f6ad1900995a34b77bf874fc276` updates pedestrian knockback: analytic horizontal drag, ballistic vertical integration and continuation until landing. Two new helper tests compare frame rates and check landing; they are not yet verified by CI.
+- The traffic-pedestrian test was corrected to expect no wanted level for a distant player; a separate test checks wanted for the player's own vehicle impact. This correction is in `2c1aabacd412db90c154dcaeafd1ea029925017c`. The new tests are not yet verified by CI.
+- Run #109 succeeded on older SHA `a1d544601ac483a16027ac36f6330d89549b0555`: formatting, ECS release tests, release build, 10-second Windows startup smoke and upload passed. Artifact `neon-frontier-windows-x64`: 29,867,517 bytes. It does not cover the later code.
+- Run #108 succeeded on older SHA `b3432d33788d1336b966dfdbc625c2cc5447af28`; artifact: 29,867,513 bytes.
+- Runs #110, #111 and #112 were still running ECS tests when checked at 19:07 UTC. #111 and #112 include the old traffic-pedestrian test expectation; inspect their actual results rather than assuming failure.
+- Run #113 started for `6da5ce5ad63d3f6ad1900995a34b77bf874fc276`. Run #114 started for `2c1aabacd412db90c154dcaeafd1ea029925017c`; at 19:08 UTC it was restoring cache, with formatting, tests, build, smoke and artifact still pending. This document commit may change `main` after that code SHA.
+- The last TODO summary listed 23 gameplay requirements plus a Windows check on exact `main`. No gameplay item has been closed solely based on these changes. P3 is deferred.
 
 ## Remaining work
 - Priorities above P3: complete ECS OBB integration, stable vehicle-pair behavior, game-level collision regressions, vehicle handling, police behavior, menu/F5/F9 integration checks, missions and events, HUD scaling, graphics/performance validation.
