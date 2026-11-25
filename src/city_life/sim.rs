@@ -241,21 +241,20 @@ pub(super) fn simulate_city_life(
                 impact_damage = CITIZEN_HEALTH;
             }
         }
+        let person_body = Body::person(Vec2::new(current.x, current.z));
         for (other, position) in citizen_positions.iter().enumerate() {
             if other == index {
                 continue;
             }
-            let flat = Vec2::new(current.x - position.x, current.z - position.z);
-            let distance = flat.length();
-            if distance < CITIZEN_BODY_RADIUS * 2.0 && distance > 1.0e-4 {
-                let push = flat.normalize();
-                let overlap = CITIZEN_BODY_RADIUS * 2.0 - distance;
-                citizen.displacement += Vec3::new(push.x, 0.0, push.y) * overlap * 0.5;
+            let other_body = Body::person(Vec2::new(position.x, position.z));
+            if let Some(separation) =
+                crate::physics::body_separation_vector(&person_body, &other_body)
+            {
+                citizen.displacement += Vec3::new(separation.x, 0.0, separation.y) * 0.5;
             }
         }
         let to_player = Vec2::new(current.x - player.x, current.z - player.z);
         let player_distance = to_player.length();
-        let person_body = Body::person(Vec2::new(current.x, current.z));
         if player_vehicle_body
             .as_ref()
             .map_or(false, |vehicle| bodies_overlap(vehicle, &person_body))
