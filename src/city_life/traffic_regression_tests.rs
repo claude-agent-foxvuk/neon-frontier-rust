@@ -218,3 +218,52 @@ fn live_player_vehicle_collision_knocks_down_pedestrian_and_raises_wanted_level(
     assert!(snapshot.citizens[0].knocked > 0.0);
     assert_eq!(snapshot.wanted_level, 1);
 }
+
+#[test]
+fn live_walking_player_and_pedestrian_separate_without_wanted_level() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(0.0, 0.9, 0.0),
+        vehicle_position: Vec3::new(100.0, 0.65, 100.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: false,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    world.spawn((
+        Transform::from_xyz(0.2, 0.82, 0.0),
+        Citizen {
+            origin: Vec3::new(0.2, 0.82, 0.0),
+            phase: 0.0,
+            speed: 0.0,
+            range: 0.0,
+            along_x: true,
+            displacement: Vec3::ZERO,
+            knock_velocity: Vec3::ZERO,
+            knocked: 0.0,
+            health: CITIZEN_HEALTH,
+            dead: false,
+        },
+    ));
+
+    world
+        .run_system_once(simulate_city_life)
+        .expect("walking contact separates the player and pedestrian by OBB");
+
+    let mut query = world.query_filtered::<(&Transform, &Citizen), With<Citizen>>();
+    let (transform, citizen) = query.single(&world).expect("one pedestrian remains");
+    assert!(!citizen.dead);
+    assert!(!bodies_overlap(
+        &Body::person(Vec2::ZERO),
+        &Body::person(Vec2::new(transform.translation.x, transform.translation.z)),
+    ));
+    assert_eq!(world.resource::<WorldState>().snapshot.wanted_level, 0);
+}
