@@ -51,9 +51,20 @@ fn noise(x: u32, y: u32, salt: u32) -> u8 {
     ((value ^ (value >> 16)) & 31) as u8
 }
 
+fn fine_grain(x: u32, y: u32, salt: u32) -> i16 {
+    let mut value = x.wrapping_mul(0x9E37_79B9)
+        ^ y.wrapping_mul(0x85EB_CA6B)
+        ^ salt.wrapping_mul(0xC2B2_AE35);
+    value ^= value >> 15;
+    value = value.wrapping_mul(0x2C1B_3C6D);
+    value ^= value >> 12;
+    ((value >> 24) & 0xff) as i16 - 128
+}
+
 fn asphalt_pixels() -> Vec<u8> {
     pixels(|x, y| {
         let grain = noise(x, y, 7) as i16 - 15;
+        let micro = fine_grain(x, y, 257) / 10;
         let aggregate = noise(x / 2, y / 2, 19) as i16;
         let broad = noise(x / 8, y / 8, 101) as i16 - 15;
         let patch = noise(x / 24, y / 24, 127);
@@ -70,7 +81,7 @@ fn asphalt_pixels() -> Vec<u8> {
         } else {
             0
         };
-        let shade = grain * 2 + broad + repair + tar_fleck + crack;
+        let shade = grain * 2 + micro + broad + repair + tar_fleck + crack;
         [
             (39_i16 + shade).clamp(0, 255) as u8,
             (47_i16 + shade).clamp(0, 255) as u8,
@@ -98,7 +109,7 @@ fn pavement_pixels() -> Vec<u8> {
         if joint {
             [34, 44, 53, 255]
         } else {
-            let detail = grain + slab / 2 + stain + grit;
+            let detail = grain + slab / 2 + stain + grit + fine_grain(x, y, 263) / 14;
             [
                 (102_i16 + detail).clamp(0, 255) as u8,
                 (117_i16 + detail).clamp(0, 255) as u8,
@@ -159,7 +170,7 @@ fn facade_pixels() -> Vec<u8> {
             } else {
                 0
             };
-            let detail = grain + weathering + streak + groove;
+            let detail = grain + weathering + streak + groove + fine_grain(x, y, 269) / 24;
             [
                 (78_i16 + detail).clamp(0, 255) as u8,
                 (94_i16 + detail).clamp(0, 255) as u8,
@@ -172,10 +183,10 @@ fn facade_pixels() -> Vec<u8> {
 
 fn ground_pixels() -> Vec<u8> {
     pixels(|x, y| {
-        let fine = noise(x, y, 89) as i16 - 15;
+        let fine = fine_grain(x, y, 89) / 16;
         let patch = noise(x / 8, y / 8, 163) as i16 - 15;
         let broad = noise(x / 32, y / 32, 181) as i16 - 15;
-        let detail = fine / 2 + patch + broad / 2;
+        let detail = fine + patch + broad / 2;
         let fleck = if noise(x / 2, y / 2, 193) > 29 { 10 } else { 0 };
         [
             (30_i16 + detail / 2 + fleck).clamp(0, 255) as u8,
@@ -193,12 +204,37 @@ fn pixels(mut color_at: impl FnMut(u32, u32) -> [u8; 4]) -> Vec<u8> {
             data.extend_from_slice(&color_at(x, y));
         }
     }
+
+    for y in 0..TILE_SIZE {
+        let first = (y * TILE_SIZE * 4) as usize;
+        let last = (y * TILE_SIZE + TILE_SIZE - 1) as usize * 4;
+        let edge = [data[first], data[first + 1], data[first + 2], data[first + 3]];
+        data[last..last + 4].copy_from_slice(&edge);
+    }
+    let row_bytes = (TILE_SIZE * 4) as usize;
+    let first_row = data[..row_bytes].to_vec();
+    let last_row = ((TILE_SIZE - 1) * row_bytes as u32) as usize;
+    data[last_row..last_row + row_bytes].copy_from_slice(&first_row);
     data
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_tile_edges_match(texture: &[u8]) {
+        let row_bytes = (TILE_SIZE * 4) as usize;
+        for y in 0..TILE_SIZE as usize {
+            let first = y * row_bytes;
+            let last = first + row_bytes - 4;
+            assert_eq!(&texture[first..first + 4], &texture[last..last + 4]);
+        }
+        for x in 0..TILE_SIZE as usize {
+            let first = x * 4;
+            let last = (TILE_SIZE as usize - 1) * row_bytes + first;
+            assert_eq!(&texture[first..first + 4], &texture[last..last + 4]);
+        }
+    }
 
     #[test]
     fn generated_surface_maps_are_complete_and_repeatable() {
@@ -217,5 +253,24 @@ mod tests {
         assert!(facade.chunks_exact(4).any(|pixel| pixel[0] > 150));
         assert!(facade.chunks_exact(4).any(|pixel| pixel[0] < 35));
         assert!(pavement_pixels().chunks_exact(4).any(|pixel| pixel[0] < 50));
+    }
+
+    #[test]
+    fn repeatable_surface_maps_have_matching_tile_edges() {
+        for texture in [
+            asphalt_pixels(),
+            pavement_pixels(),
+            facade_pixels(),
+            ground_pixels(),
+        ] {
+            assert_tile_edges_match(&texture);
+        }
+    }
+
+    #[test]
+    fn fine_grain_is_deterministic_and_varies_between_pixels() {
+        assert_eq!(fine_grain(20, 40, 7), fine_grain(20, 40, 7));
+        assert_ne!(fine_grain(20, 40, 7), fine_grain(21, 40, 7));
+        assert_ne!(fine_grain(20, 40, 7), fine_grain(20, 40, 8));
     }
 }
