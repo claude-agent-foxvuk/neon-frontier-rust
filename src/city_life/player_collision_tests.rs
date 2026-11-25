@@ -58,3 +58,53 @@ fn live_walking_player_and_citizen_separate_by_obb_without_wanted() {
     assert!(!bodies_overlap(&player_body, &citizen_body));
     assert_eq!(snapshot.wanted_level, 0);
 }
+
+#[test]
+fn live_traffic_stops_before_walking_player_obb_without_wanted() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+
+    let player_position = Vec3::new(0.0, 0.9, 0.0);
+    world.insert_resource(PlayerProbe {
+        position: player_position,
+        vehicle_position: Vec3::new(120.0, 0.65, 120.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: false,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    world.spawn((
+        Transform::from_xyz(-9.0, 0.48, 0.0),
+        TrafficCar {
+            speed: 8.0,
+            direction: 1.0,
+            along_x: true,
+            stop_timer: 0.0,
+            lane_offset: 0.0,
+            avoid_offset: 0.0,
+        },
+    ));
+
+    world
+        .run_system_once(simulate_city_life)
+        .expect("live city simulation brakes traffic before a walking player");
+
+    let snapshot = &world.resource::<WorldState>().snapshot;
+    assert_eq!(snapshot.traffic.len(), 1);
+    assert!(snapshot.traffic[0].stop_timer > 0.0);
+    assert_eq!(snapshot.wanted_level, 0);
+
+    let mut cars = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
+    let (transform, car) = cars.single(&world).expect("one traffic car remains");
+    assert!((transform.translation.x + 9.0).abs() < 1.0e-4);
+    let traffic_body = traffic_vehicle_body(transform, car.along_x, car.direction);
+    let player_body = Body::person(Vec2::new(player_position.x, player_position.z));
+    assert!(!bodies_overlap(&traffic_body, &player_body));
+}
