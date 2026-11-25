@@ -914,9 +914,17 @@ fn simulate_city_life(
     >,
     mut officers: Query<
         (&mut Transform, &mut FootOfficer, &mut Visibility),
-        (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>),
+        (
+            Without<TrafficCar>,
+            Without<Citizen>,
+            Without<PolicePatrol>,
+            Without<PoliceSirenLight>,
+        ),
     >,
-    mut siren_lights: Query<(&mut Visibility, &PoliceSirenLight)>,
+    mut siren_lights: Query<
+        (&mut Visibility, &PoliceSirenLight),
+        (Without<FootOfficer>, Without<OfficerMuzzleFlash>),
+    >,
     mut muzzle_flashes: Query<
         (&mut Visibility, &mut OfficerMuzzleFlash),
         (
