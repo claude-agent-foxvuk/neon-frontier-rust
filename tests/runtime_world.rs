@@ -219,13 +219,23 @@ mod city_life {
             let mut traffic = world.query::<(&Transform, &TrafficCar)>();
             let (traffic_transform, traffic_car) = traffic.iter(&world).next().unwrap();
             assert_eq!(traffic_transform.translation, snapshot.world.traffic[0].position);
+            assert_eq!(traffic_car.speed, 6.2);
+            assert_eq!(traffic_car.direction, 1.0);
+            assert!(traffic_car.along_x);
+            assert_eq!(traffic_car.lane_offset, -1.2);
             assert_eq!(traffic_car.avoid_offset, -3.5);
             assert_eq!(traffic_car.stop_timer, 1.4);
 
             let mut citizen = world.query::<(&Transform, &Citizen)>();
             let (citizen_transform, citizen_state) = citizen.iter(&world).next().unwrap();
+            assert_eq!(citizen_state.origin, Vec3::new(-20.0, 0.82, 60.0));
             assert_eq!(citizen_transform.translation, Vec3::new(-19.5, 1.07, 60.2));
             assert_eq!(citizen_state.phase, 1.2);
+            assert_eq!(citizen_state.speed, 0.5);
+            assert_eq!(citizen_state.range, 3.0);
+            assert!(citizen_state.along_x);
+            assert_eq!(citizen_state.displacement, Vec3::new(0.5, 0.25, 0.2));
+            assert_eq!(citizen_state.knock_velocity, Vec3::new(0.3, 0.4, -0.2));
             assert_eq!(citizen_state.knocked, 0.8);
             assert_eq!(citizen_state.health, 1.5);
             assert!(!citizen_state.dead);
