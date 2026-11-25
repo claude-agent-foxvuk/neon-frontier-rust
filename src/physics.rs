@@ -252,20 +252,31 @@ pub fn resolve_body_overlaps(mut body: Body, obstacles: &[Body]) -> Body {
     body
 }
 
-/// Separates existing overlap, then moves a rotated body without passing through OBB obstacles.
-pub fn move_body_with_slide(mut body: Body, delta: Vec2, obstacles: &[Body]) -> Body {
-    if !body.is_valid() || !delta.is_finite() {
-        return body;
+/// Separates every valid dynamic body from overlapping peers with equal positional correction.
+pub fn resolve_body_pairs(bodies: &mut [Body]) {
+    for _ in 0..SEPARATION_PASSES {
+        let mut moved = false;
+        for first_index in 0..bodies.len() {
+            if !bodies[first_index].is_valid() {
+                continue;
+            }
+            for second_index in (first_index + 1)..bodies.len() {
+                if !bodies[second_index].is_valid() {
+                    continue;
+                }
+                if let Some(translation) =
+                    body_separation_vector(&bodies[first_index], &bodies[second_index])
+                {
+                    bodies[first_index].center += translation * 0.5;
+                    bodies[second_index].center -= translation * 0.5;
+                    moved = true;
+                }
+            }
+        }
+        if !moved {
+            break;
+        }
     }
-    body = resolve_body_overlaps(body, obstacles);
-    let position = move_with_slide(body.center, delta, |center| {
-        let candidate = Body { center, ..body };
-        obstacles
-            .iter()
-            .any(|obstacle| bodies_overlap(&candidate, obstacle))
-    });
-    body.center = position;
-    body
 }
 
 /// Pushes a point out of every overlapping body along the nearest face.
@@ -474,25 +485,37 @@ mod tests {
     }
 
     #[test]
-    fn swept_vehicle_body_stops_before_a_perpendicular_vehicle() {
-        let moving = Body::vehicle(Vec2::ZERO, 0.0);
-        let obstacle = Body::vehicle(Vec2::new(0.0, 5.0), 0.0);
-        let moved = move_body_with_slide(moving, Vec2::new(0.0, 10.0), &[obstacle]);
+    fn dynamic_body_pairs_separate_vehicle_vehicle_and_person_person_contacts() {
+        let mut vehicles = [
+            Body::vehicle(Vec2::ZERO, 0.0),
+            Body::vehicle(Vec2::new(0.0, 1.8), std::f32::consts::FRAC_PI_2),
+        ];
+        assert!(bodies_overlap(&vehicles[0], &vehicles[1]));
+        resolve_body_pairs(&mut vehicles);
+        assert!(!bodies_overlap(&vehicles[0], &vehicles[1]));
 
-        assert!(moved.center.y > 0.0);
-        assert!(moved.center.y < 3.2);
-        assert!(!bodies_overlap(&moved, &obstacle));
+        let mut people = [
+            Body::person(Vec2::ZERO),
+            Body::person(Vec2::new(0.4, 0.0)),
+        ];
+        assert!(bodies_overlap(&people[0], &people[1]));
+        resolve_body_pairs(&mut people);
+        assert!(!bodies_overlap(&people[0], &people[1]));
     }
 
     #[test]
-    fn swept_vehicle_body_slides_along_a_wall() {
-        let moving = Body::vehicle(Vec2::ZERO, 0.0);
-        let wall = Body::new(Vec2::new(2.5, 0.0), 0.5, 8.0, 0.0);
-        let moved = move_body_with_slide(moving, Vec2::new(5.0, 5.0), &[wall]);
-
-        assert!(moved.center.x < 0.0);
-        assert!(moved.center.y > 3.0);
-        assert!(!bodies_overlap(&moved, &wall));
+    fn dynamic_body_pairs_separate_vehicle_person_contact_and_ignore_invalid_body() {
+        let vehicle = Body::vehicle(Vec2::ZERO, 0.4);
+        let person = Body::person(Vec2::new(1.0, 0.2));
+        let invalid = Body {
+            center: Vec2::new(f32::NAN, 0.0),
+            ..person
+        };
+        let mut bodies = [vehicle, person, invalid];
+        assert!(bodies_overlap(&bodies[0], &bodies[1]));
+        resolve_body_pairs(&mut bodies);
+        assert!(!bodies_overlap(&bodies[0], &bodies[1]));
+        assert!(!bodies[2].center.is_finite());
     }
 
     #[test]
