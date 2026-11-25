@@ -101,15 +101,32 @@ fn wrap_hud_line(line: &str) -> String {
     let mut current_chars = 0;
     for word in line.split_whitespace() {
         let word_chars = word.chars().count();
-        if current_chars > 0 && current_chars + 1 + word_chars > HUD_MAX_LINE_CHARS {
+        if current_chars > 0 && current_chars + 1 + word_chars <= HUD_MAX_LINE_CHARS {
+            wrapped.push(' ');
+            wrapped.push_str(word);
+            current_chars += 1 + word_chars;
+            continue;
+        }
+        if current_chars > 0 {
             wrapped.push('\n');
             current_chars = 0;
-        } else if current_chars > 0 {
-            wrapped.push(' ');
-            current_chars += 1;
         }
-        wrapped.push_str(word);
-        current_chars += word_chars;
+        let mut chunk = String::new();
+        for character in word.chars() {
+            if current_chars == HUD_MAX_LINE_CHARS {
+                wrapped.push('\n');
+                current_chars = 0;
+            }
+            wrapped.push(character);
+            current_chars += 1;
+            if current_chars == HUD_MAX_LINE_CHARS {
+                wrapped.push('\n');
+                current_chars = 0;
+            }
+        }
+        if !chunk.is_empty() {
+            wrapped.push_str(&chunk);
+        }
     }
     wrapped
 }
@@ -266,6 +283,18 @@ mod tests {
         assert!(hud.contains("файл повреждён"));
         assert!(hud.contains("отсутствует"));
         assert!(hud
+            .lines()
+            .all(|line| line.chars().count() <= HUD_MAX_LINE_CHARS));
+    }
+
+    #[test]
+    fn long_hud_words_are_split_without_losing_characters() {
+        let word = "Щ".repeat(HUD_MAX_LINE_CHARS * 2 + 7);
+        let wrapped = wrap_hud_line(&word);
+        let actual: String = wrapped.chars().filter(|character| *character != '\n').collect();
+
+        assert_eq!(actual, word);
+        assert!(wrapped
             .lines()
             .all(|line| line.chars().count() <= HUD_MAX_LINE_CHARS));
     }
