@@ -311,6 +311,13 @@ pub(super) fn simulate_city_life(
                 citizen.displacement += Vec3::new(separation.x, 0.0, separation.y) * 0.5;
             }
         }
+        if !probe.in_vehicle {
+            if let Some(separation) =
+                crate::physics::body_separation_vector(&person_body, &player_contact_body)
+            {
+                citizen.displacement += Vec3::new(separation.x, 0.0, separation.y);
+            }
+        }
         let to_player = Vec2::new(current.x - player.x, current.z - player.z);
         let player_distance = to_player.length();
         if player_vehicle_body
