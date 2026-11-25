@@ -5,6 +5,7 @@ use std::io;
 use crate::city_life::{CitizenSave, OfficerSave, PatrolSave, TrafficSave, WorldSnapshot};
 
 pub const SAVE_FILE_NAME: &str = "neon_frontier_save.txt";
+const DEFAULT_WORLD_TIME: f32 = 0.32;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Snapshot {
@@ -27,6 +28,7 @@ pub struct Snapshot {
     pub credits: u32,
     pub driving: bool,
     pub bloom: bool,
+    pub world_time: f32,
     pub world: WorldSnapshot,
 }
 
@@ -141,6 +143,7 @@ pub fn encode_snapshot(snapshot: &Snapshot) -> String {
         ];
         text.push_str(&record(&values, Some(officer.active)));
     }
+    text.push_str(&record(&[snapshot.world_time], None));
     text
 }
 
@@ -234,6 +237,8 @@ fn valid_snapshot(snapshot: &Snapshot) -> bool {
         && snapshot.camera_orbit.is_finite()
         && snapshot.camera_orbit.abs() <= 1_000_000.0
         && (0.12..=1.05).contains(&snapshot.camera_pitch)
+        && snapshot.world_time.is_finite()
+        && (0.0..=1.0).contains(&snapshot.world_time)
         && (!snapshot.player_grounded
             || ((snapshot.player.y - PLAYER_GROUND_Y).abs() < 0.001
                 && snapshot.player_vertical_speed.abs() < 0.001))
@@ -379,6 +384,7 @@ fn decode_world(lines: &mut std::str::Lines<'_>) -> Option<WorldSnapshot> {
         credits: 0,
         driving: false,
         bloom: true,
+        world_time: DEFAULT_WORLD_TIME,
         world,
     };
     if valid_snapshot(&sample) {
@@ -400,12 +406,44 @@ pub fn decode_snapshot(text: &str) -> Option<Snapshot> {
     let credits = lines.next()?.parse::<u32>().ok()?;
     let driving = parse_flag(lines.next()?)?;
     let bloom = parse_flag(lines.next()?)?;
-    let player_motion = parse_numbers(lines.next()?, 5)?;
+
+    let Some(player_motion_line) = lines.next() else {
+        let snapshot = Snapshot {
+            player: Vec3::new(player[0], player[1], player[2]),
+            car: Vec3::new(car[0], car[1], car[2]),
+            yaw: motion[0],
+            speed: motion[1],
+            steering: 0.0,
+            lateral_speed: 0.0,
+            player_facing_yaw: 0.0,
+            player_moving: false,
+            player_running: false,
+            player_vertical_speed: 0.0,
+            player_grounded: true,
+            punch_cooldown: 0.0,
+            camera_yaw: 0.0,
+            camera_orbit: 0.0,
+            camera_pitch: 0.38,
+            stage,
+            credits,
+            driving,
+            bloom,
+            world_time: DEFAULT_WORLD_TIME,
+            world: WorldSnapshot::default(),
+        };
+        return valid_snapshot(&snapshot).then_some(snapshot);
+    };
+
+    let player_motion = parse_numbers(player_motion_line, 5)?;
     let player_moving = parse_flag(lines.next()?)?;
     let player_running = parse_flag(lines.next()?)?;
     let player_grounded = parse_flag(lines.next()?)?;
     let camera = parse_numbers(lines.next()?, 3)?;
     let world = decode_world(&mut lines)?;
+    let world_time = match lines.next() {
+        Some(value) => parse_numbers(value, 1)?[0],
+        None => DEFAULT_WORLD_TIME,
+    };
     if lines.next().is_some() {
         return None;
     }
@@ -429,6 +467,7 @@ pub fn decode_snapshot(text: &str) -> Option<Snapshot> {
         credits,
         driving,
         bloom,
+        world_time,
         world,
     };
     if valid_snapshot(&snapshot) {
@@ -477,6 +516,7 @@ mod tests {
             credits: 200,
             driving: true,
             bloom: false,
+            world_time: 0.73,
             world: WorldSnapshot {
                 health: 64.0,
                 wanted_level: 3,
@@ -652,6 +692,31 @@ mod tests {
         assert!(decoded.world.officers.is_empty());
         assert_eq!(decoded.world.health, 100.0);
         assert_eq!(decoded.stage, 0);
+        assert_eq!(decoded.world_time, DEFAULT_WORLD_TIME);
+    }
+
+    #[test]
+    fn old_core_v1_save_decodes_with_defaults_for_new_fields() {
+        let old_file = concat!(
+            "NEON_FRONTIER_SAVE_V1\n",
+            "12.5 0.9 -18.25\n",
+            "14 0.65 -20\n",
+            "1.25 8.5\n",
+            "2\n",
+            "200\n",
+            "true\n",
+            "false\n"
+        );
+        let decoded = decode_snapshot(old_file).expect("older V1 file decodes");
+        assert_eq!(decoded.player, Vec3::new(12.5, 0.9, -18.25));
+        assert_eq!(decoded.car, Vec3::new(14.0, 0.65, -20.0));
+        assert_eq!(decoded.yaw, 1.25);
+        assert_eq!(decoded.speed, 8.5);
+        assert!(decoded.driving);
+        assert!(!decoded.bloom);
+        assert_eq!(decoded.world_time, DEFAULT_WORLD_TIME);
+        assert_eq!(decoded.world.health, 100.0);
+        assert!(decoded.world.traffic.is_empty());
     }
 
     #[test]
@@ -685,6 +750,7 @@ mod tests {
         assert_eq!(decoded.camera_yaw, 1.4);
         assert_eq!(decoded.camera_pitch, 0.55);
         assert_eq!(decoded.punch_cooldown, 0.2);
+        assert_eq!(decoded.world_time, 0.73);
     }
 
     #[test]
@@ -706,6 +772,7 @@ mod tests {
         snapshot.player.x = 12.123_456;
         snapshot.yaw = 0.123_456_78;
         snapshot.world.traffic[0].lane_offset = 0.123_456_78;
+        snapshot.world_time = 0.123_456_78;
 
         let encoded = encode_snapshot(&snapshot);
 
