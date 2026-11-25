@@ -1,6 +1,6 @@
 # Neon Frontier — project state
 
-Last checked: 2026-11-25 17:12 UTC. Source of truth: current `main`, repository files, and GitHub Actions. `FEATURES.md` lists existing code; `TODO.md` tracks open work by priority.
+Last checked: 2026-11-25 17:17 UTC. Source of truth: current `main`, repository files, and GitHub Actions. `FEATURES.md` lists existing code; `TODO.md` tracks open work by priority.
 
 ## Scope and decisions
 - Windows 11, Rust 1.100+, Bevy 0.20.1; an original compact open-world action-driving prototype.
@@ -10,15 +10,13 @@ Last checked: 2026-11-25 17:12 UTC. Source of truth: current `main`, repository 
 - GitHub reports this repository as public.
 
 ## Current code and checks
-- Current gameplay code SHA: `63a5423131f1e3783f1f535c68ef8a2f91e7ab6b`, which added swept OBB and vehicle-person regression tests. Later commits in this pass update project documentation only; these tests have not yet passed CI.
-- Run #99 started at 17:10 UTC for gameplay SHA `63a5423131f1e3783f1f535c68ef8a2f91e7ab6b`. At 17:12 UTC, its Windows job was still running the Cargo cache step; formatting, tests, build, startup smoke, and artifact upload were pending.
-- Run #98 is also reported in progress on older SHA `2b6fecf144b361447b814bef7594072140050665`. The last detailed job read at 17:10 UTC showed formatting passed and ECS-diagnostic release tests running; build, startup smoke, and artifact were pending. It cannot verify current gameplay code.
-- Run #97 completed successfully on gameplay SHA `4f4da617863efe547ea52c163c3d72bb7cdae6a6`: formatting, release tests with ECS diagnostics, release build, 10-second Windows startup smoke, and upload all passed. Artifact `neon-frontier-windows-x64` was 29,867,711 bytes. The smoke stayed alive and reported no `B000` error.
-- Run #96 failed at compile time in `src/city_life/sim.rs:262`: `traffic_vehicle_body` expected `&Transform` but received `Mut<Transform>`. The borrow fix is in `4f4da617863efe547ea52c163c3d72bb7cdae6a6`, checked by successful #97.
-- Run #95 failed formatting on an intermediate SHA because `traffic_regression_tests` referenced a file not yet present at that commit; the file exists on current main.
-- Run #92 succeeded on earlier SHA `62af7f25f0360f555c393a17d695e7d0a9112e53`, including the day-cycle test and artifact upload. Its artifact does not verify later OBB changes.
-- `src/main.rs` compares `sun_height(1.5)` with `sun_height(0.5)` at the same tolerance; #92 passed the test.
-- New tests exercise swept vehicle collision against a rotated obstacle and stable OBB separation for a vehicle-person pair. They extend helper-level coverage only; full player/world ECS OBB integration and broader gameplay acceptance remain open.
+- Current gameplay SHA: `05498998af7f7269afcf473118d9fb0359ae4aa7`. It corrects the orientation of the wall in `swept_vehicle_motion_stops_before_a_rotated_obstacle_without_tunneling`: the obstacle is now long along world Y and thin across the X movement path. The regression test has not yet passed CI.
+- Run #100 started at 17:15 UTC on current main `05498998af7f7269afcf473118d9fb0359ae4aa7`. At 17:17 UTC setup and toolchain passed; Cargo cache was running. Formatting, tests, build, Windows startup smoke, and artifact upload remain pending.
+- Run #99 is still in progress on the earlier gameplay SHA `63a5423131f1e3783f1f535c68ef8a2f91e7ab6b`. Formatting passed; ECS-diagnostic release tests were still running at 17:17 UTC. This SHA contains the swept OBB test before the wall-orientation correction, so its test result may expose that regression, but it cannot validate current main.
+- Run #98 completed successfully at 17:16 UTC on older SHA `2b6fecf144b361447b814bef7594072140050665`. Formatting, ECS-diagnostic release tests, release build, 10-second Windows startup smoke, and artifact upload passed. Artifact `neon-frontier-windows-x64` was 29,867,711 bytes. This older SHA does not validate current gameplay changes.
+- Run #97 completed successfully on older gameplay SHA `4f4da617863efe547ea52c163c3d72bb7cdae6a6`, including the same checks and a 29,867,711-byte artifact. It does not validate later OBB tests.
+- `src/main.rs` compares `sun_height(1.5)` with `sun_height(0.5)` at the same tolerance; #92 passed that test.
+- Current OBB tests exercise helper-level collision and separation only. Full player/world ECS OBB integration and broader gameplay acceptance remain open.
 
 ## Remaining work
 - `TODO.md` records 24 open items: 23 gameplay requirements across P0–P3 and one current-main Windows verification. P3 stays deferred until higher-priority work is complete.
