@@ -114,7 +114,7 @@ fn live_city_simulation_separates_crossing_traffic_vehicles_by_obb() {
 }
 
 #[test]
-fn live_traffic_collision_knocks_down_pedestrian_and_raises_wanted_level() {
+fn live_traffic_collision_knocks_down_pedestrian_without_wanted_for_player() {
     let mut world = World::new();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
@@ -168,7 +168,7 @@ fn live_traffic_collision_knocks_down_pedestrian_and_raises_wanted_level() {
     assert!(snapshot.citizens[0].dead);
     assert_eq!(snapshot.citizens[0].health, 0.0);
     assert!(snapshot.citizens[0].knocked > 0.0);
-    assert_eq!(snapshot.wanted_level, 1);
+    assert_eq!(snapshot.wanted_level, 0);
     assert!(snapshot.traffic[0].stop_timer > 0.0);
 }
 
