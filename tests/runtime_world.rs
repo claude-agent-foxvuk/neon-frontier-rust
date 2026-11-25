@@ -229,7 +229,10 @@ mod city_life {
             let mut citizen = world.query::<(&Transform, &Citizen)>();
             let (citizen_transform, citizen_state) = citizen.iter(&world).next().unwrap();
             assert_eq!(citizen_state.origin, Vec3::new(-20.0, 0.82, 60.0));
-            assert_eq!(citizen_transform.translation, Vec3::new(-19.5, 1.07, 60.2));
+            assert!(citizen_transform
+                .translation
+                .distance(Vec3::new(-19.5, 1.07, 60.2))
+                < 1.0e-5);
             assert_eq!(citizen_state.phase, 1.2);
             assert_eq!(citizen_state.speed, 0.5);
             assert_eq!(citizen_state.range, 3.0);
@@ -273,7 +276,7 @@ mod city_life {
             };
             let mut probe = PlayerProbe::default();
             probe.health = 77.0;
-            let mut wanted = WantedState {
+            let wanted = WantedState {
                 level: 1,
                 decay_timer: 9.0,
             };
