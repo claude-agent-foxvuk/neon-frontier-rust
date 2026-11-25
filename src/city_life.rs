@@ -56,6 +56,15 @@ struct PolicePatrol {
 }
 
 #[derive(Component)]
+struct PoliceSirenLight {
+    phase: f32,
+}
+
+fn police_siren_visible(wanted_level: u8, phase: f32, time_seconds: f32) -> bool {
+    wanted_level > 0 && (time_seconds * 12.0 + phase).cos() >= 0.0
+}
+
+#[derive(Component)]
 struct FootOfficer {
     patrol_index: usize,
     active: bool,
@@ -553,30 +562,40 @@ fn spawn_city_life(
         .enumerate()
     {
         let center = Vec3::new(home.x, 0.48, home.y);
-        commands.spawn((
-            Mesh3d(car_mesh.clone()),
-            MeshMaterial3d(police_body.clone()),
-            Transform::from_translation(center),
-            PolicePatrol {
-                home,
-                phase: index as f32 * 2.7,
-            },
-        ));
-        commands.spawn((
-            Mesh3d(bar_mesh.clone()),
-            MeshMaterial3d(red_light.clone()),
-            Transform::from_translation(center + Vec3::new(-0.28, 0.56, 0.0)),
-        ));
-        commands.spawn((
-            Mesh3d(bar_mesh.clone()),
-            MeshMaterial3d(blue_light.clone()),
-            Transform::from_translation(center + Vec3::new(0.28, 0.56, 0.0)),
-        ));
-        commands.spawn((
-            Mesh3d(badge_mesh.clone()),
-            MeshMaterial3d(blue_light.clone()),
-            Transform::from_translation(center + Vec3::new(0.97, 0.05, 0.0)),
-        ));
+        let patrol = commands
+            .spawn((
+                Mesh3d(car_mesh.clone()),
+                MeshMaterial3d(police_body.clone()),
+                Transform::from_translation(center),
+                PolicePatrol {
+                    home,
+                    phase: index as f32 * 2.7,
+                },
+            ))
+            .id();
+        commands.entity(patrol).with_children(|parent| {
+            parent.spawn((
+                Mesh3d(bar_mesh.clone()),
+                MeshMaterial3d(red_light.clone()),
+                Transform::from_translation(Vec3::new(-0.28, 0.56, 0.0)),
+                Visibility::Hidden,
+                PoliceSirenLight { phase: 0.0 },
+            ));
+            parent.spawn((
+                Mesh3d(bar_mesh.clone()),
+                MeshMaterial3d(blue_light.clone()),
+                Transform::from_translation(Vec3::new(0.28, 0.56, 0.0)),
+                Visibility::Hidden,
+                PoliceSirenLight {
+                    phase: std::f32::consts::PI,
+                },
+            ));
+            parent.spawn((
+                Mesh3d(badge_mesh.clone()),
+                MeshMaterial3d(blue_light.clone()),
+                Transform::from_translation(Vec3::new(0.97, 0.05, 0.0)),
+            ));
+        });
         let officer = commands
             .spawn((
                 Mesh3d(officer_mesh.clone()),
@@ -876,8 +895,14 @@ fn simulate_city_life(
     >,
     mut officers: Query<
         (&mut Transform, &mut FootOfficer, &mut Visibility),
-        (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>),
+        (
+            Without<TrafficCar>,
+            Without<Citizen>,
+            Without<PolicePatrol>,
+            Without<PoliceSirenLight>,
+        ),
     >,
+    mut siren_lights: Query<(&mut Visibility, &PoliceSirenLight)>,
     mut muzzle_flashes: Query<
         (&mut Visibility, &mut OfficerMuzzleFlash),
         (
@@ -885,6 +910,7 @@ fn simulate_city_life(
             Without<Citizen>,
             Without<PolicePatrol>,
             Without<FootOfficer>,
+            Without<PoliceSirenLight>,
         ),
     >,
 ) {
@@ -1127,6 +1153,13 @@ fn simulate_city_life(
     }
 
     wanted.tick(dt, player_incident);
+    for (mut visibility, siren) in &mut siren_lights {
+        *visibility = if police_siren_visible(wanted.level, siren.phase, now) {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
     for (index, (mut transform, patrol)) in (&mut patrols).into_iter().enumerate() {
         let position = Vec2::new(transform.translation.x, transform.translation.z);
         let tactics = if wanted.level > 0 {
@@ -1524,6 +1557,24 @@ mod tests {
         assert!(can_police_shoot(POLICE_SHOT_MAX_DISTANCE, true));
         assert!(!can_police_shoot(18.1, true));
         assert!(!can_police_shoot(12.0, false));
+    }
+
+    #[test]
+    fn police_siren_lights_stay_off_without_wanted_level() {
+        assert!(!police_siren_visible(0, 0.0, 0.0));
+        assert!(!police_siren_visible(0, std::f32::consts::PI, 0.25));
+    }
+
+    #[test]
+    fn police_siren_lights_alternate_with_active_wanted_level() {
+        let red_phase = 0.0;
+        let blue_phase = std::f32::consts::PI;
+        assert!(police_siren_visible(1, red_phase, 0.0));
+        assert!(!police_siren_visible(1, blue_phase, 0.0));
+
+        let half_cycle = std::f32::consts::PI / 12.0;
+        assert!(!police_siren_visible(1, red_phase, half_cycle));
+        assert!(police_siren_visible(1, blue_phase, half_cycle));
     }
 
     #[test]
