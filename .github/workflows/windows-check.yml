@@ -59,10 +59,9 @@ jobs:
             throw 'Bevy reported an ECS query conflict during startup, which crashes the game for players.'
           }
           if ($exitedEarly) {
-            Write-Warning "The game exited during the startup smoke window with code $($process.ExitCode). The log above is the only diagnostic signal; a headless runner can stop a windowed app without a display adapter."
-          } else {
-            Write-Host 'The game stayed alive through the startup smoke window.'
+            throw "The game exited during the 10-second startup smoke window with code $($process.ExitCode). See captured logs above."
           }
+          Write-Host 'The game stayed alive through the startup smoke window.'
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
