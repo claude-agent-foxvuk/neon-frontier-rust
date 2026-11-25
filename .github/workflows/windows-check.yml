@@ -32,8 +32,10 @@ jobs:
           key: ${{ runner.os }}-cargo-1.100.0-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-1.100.0-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      - name: Format sources and verify formatting
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
       - name: Test
         run: cargo test --release
       - name: Build release
