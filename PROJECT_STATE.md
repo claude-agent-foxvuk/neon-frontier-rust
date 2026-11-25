@@ -1,29 +1,28 @@
 # Neon Frontier — project state
 
-Last checked: 2026-11-25 13:54 UTC. Source of truth: current `main`, repository files, and GitHub Actions results.
+Last checked: 2026-11-25 13:57 UTC. Source of truth: current `main`, repository files, and GitHub Actions results.
 
 ## Scope and decisions
 - Windows 11, Rust 1.100+, Bevy 0.20.1; original compact open-world action-driving game.
 - Save format remains `NEON_FRONTIER_SAVE_V1`.
 - No coding agents or paid services. Commit directly through the GitHub API to `claude-agent-foxvuk/neon-frontier-rust`.
-- Keep README, FEATURES, TODO, and this file current. A green CI run does not prove manual playability.
+- Keep `README.md`, `FEATURES.md`, `TODO.md`, and this file current. A green CI run alone does not prove manual playability.
 
-## Current main and recovery
-- `main` is at `0fed91ba357a17afbdfcd7442070c1dcb0771149`.
-- The EXE from #66 was reported by Fox to panic at window startup with Bevy ECS B0001. The old green run did not prove that the game launches.
-- The subsequent main history contained a truncated `src/city_life.rs`; commit `d8babda` added `src/city_life/sim.rs` without wiring it into the module. Commit `0fed91b` restores the preserved city core through `src/city_life.rs` and `src/city_life/core.rs`, reconnects `helpers.rs` and `sim.rs`, restores city-life tests, and keeps the officer query filter disjoint from siren lights. Compilation and runtime are not confirmed yet.
-- Windows run #73 started on current SHA `0fed91ba357a17afbdfcd7442070c1dcb0771149` at 13:53:50 UTC. At the latest read, setup and checkout passed; Cargo cache was running, formatting/tests/build/smoke/upload had not started.
-- Run #72 is still listed in progress on superseded SHA `d8babda9cede9505753fc17559191f7f6e9b668c`; do not treat it as verification of current main.
-- Run #70 on `8251fadc5bc9ab525f5299f619c72d4784e7ce9d` failed with E0308: `restore_world` expected a three-condition officer filter while the call supplied four. The current restored source matches the four-condition filter, pending run #73.
-- The workflow includes Bevy ECS diagnostics and a 10-second Windows startup smoke step. Inspect its log on #73; an artifact is not a substitute for checking the smoke result.
+## Current main and verification
+- Current `main` is `99305fcfb5bd0dc98ff41687d20a16382091d1a0`; project-state docs record the restored source commit `0fed91ba357a17afbdfcd7442070c1dcb0771149` immediately before it.
+- Run #73 is testing `0fed91ba357a17afbdfcd7442070c1dcb0771149`, the code tree currently on `main`. At 13:56:26 UTC setup, checkout, Rust 1.100 installation, cache restore, and format check had passed. `cargo test --release --features bevy/debug` was in progress; build, startup smoke, and artifact upload had not run. No artifact was listed yet.
+- Run #70 on `8251fadc5bc9ab525f5299f619c72d4784e7ce9d` failed at compile time with E0308: `restore_world` accepted a three-filter officer query while its caller supplied four filters. The smoke step was skipped because tests failed. The city source and filters were restored in `0fed91b`; #73 is the first Windows check on that restored tree.
+- Runs #71 and #72 concern superseded code SHAs and do not verify current `main`.
+- `src/city_life.rs` is now split into `core.rs`, `helpers.rs`, `sim.rs`, and `tests.rs`; query filters in the restore and simulation officer queries include `Without<PoliceSirenLight>`.
+- The workflow uses `cargo test --release --features bevy/debug`, a Windows startup smoke step that scans captured output for `error[B000`, and release EXE upload. The smoke step's actual result is still pending on #73.
 
-## Verified older baseline
-- Run #66 on `59d2e38a6aba6d8fcecddc4c93b16ace23d97464` passed formatting, tests, release build, and upload. It is superseded and Fox's report of B0001 means it is not a validated playable build.
-- The workflow uses `cargo test --release --features bevy/debug`; preserve `--release`. On #66 tests took 12:57 and release build took 1 second. Splitting jobs has not been measured.
+## Previously verified baseline and known limits
+- Run #66 passed on `59d2e38a6aba6d8fcecddc4c93b16ace23d97464` and uploaded `neon-frontier-windows-x64`, 28,711,072 bytes. Fox later reported that this EXE panicked with Bevy B0001 at window startup; it is not a validated playable build.
+- The test `sun_peaks_at_noon_and_bottoms_out_at_midnight` already compares `sun_height(1.5)` to `sun_height(0.5)` with a tolerance; current source contains that correction. Verify its current run result in #73.
+- OBB/SAT, swept movement, pair resolution helpers and unit tests exist. OBB is only partially connected to the city ECS; multiple player/vehicle/pedestrian collision paths still use circles.
+- Manual Windows 11 testing is required for launch, Russian text, menu, F5/F9, collisions, vehicle model, sirens and graphics. No current EXE has passed that owner-side check.
 
-## Open work
-- Confirm #73 format, tests, release build, startup smoke log, and `neon-frontier-windows-x64` artifact on the current main SHA; fix any failure before relying on it.
-- Continue TODO: full OBB integration across player, traffic, pedestrians, and buildings; vehicle inertia/grip/braking; police response for wanted levels 3–6; missions and city events; HUD scaling; complete module separation; manual F5/F9 and menu checks.
-- Test the latest EXE on Fox's Windows 11 machine for startup, Cyrillic text, collisions, vehicle model, sirens, and graphics. CI cannot confirm those manual results.
-
-Update this file, README, FEATURES, and TODO whenever source or verification status changes. Never mark all TODO complete based on one green run.
+## Remaining work
+- Read #73 result, especially test output, startup smoke log and `neon-frontier-windows-x64` artifact, before treating the current source as verified.
+- Continue `TODO.md`: finish gameplay OBB integration and stable pair separation, improve car inertia/grip/braking, implement higher-level police response, add city events/missions, test HUD scaling and menu/save hotkeys, and keep modules organized.
+- Update `README.md`, `FEATURES.md`, and `TODO.md` with verified state, not assumptions; never mark the whole TODO complete because of one green run.
