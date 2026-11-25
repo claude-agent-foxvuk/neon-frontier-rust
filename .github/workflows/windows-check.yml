@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/windows-check.yml'
 permissions:
   contents: read
 jobs:
