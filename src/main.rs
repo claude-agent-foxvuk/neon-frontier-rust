@@ -505,7 +505,11 @@ fn setup(
         });
 
     commands
-        .spawn((Transform::from_translation(game.car), CarVisual))
+        .spawn((
+            Transform::from_translation(game.car),
+            Visibility::default(),
+            CarVisual,
+        ))
         .with_children(|parent| {
             parent.spawn((
                 Mesh3d(cube.clone()),
@@ -663,22 +667,44 @@ fn limb_swing(phase: f32, offset: f32, amplitude: f32, moving: bool) -> f32 {
 
 fn vehicle_speed_step(speed: f32, accelerating: bool, braking: bool, dt: f32) -> f32 {
     let dt = dt.max(0.0);
+    if dt == 0.0 {
+        return speed;
+    }
+
     if braking {
         if speed > 0.0 {
-            (speed - 22.0 * dt).max(0.0)
+            (speed - 15.0 * dt).max(0.0)
         } else {
-            (speed - 8.0 * dt).max(-8.0)
+            (speed - 5.5 * dt).max(-8.0)
         }
     } else if accelerating {
-        (speed + 14.0 * dt).clamp(-8.0, 24.0)
+        if speed < 0.0 {
+            (speed + 15.0 * dt).min(0.0)
+        } else {
+            (speed + 9.0 * dt).min(24.0)
+        }
     } else {
-        speed * (1.0 - 0.7 * dt).max(0.0)
+        let rolling_and_aero_drag = (0.35 + speed.abs() * 0.025) * dt;
+        if speed.abs() <= rolling_and_aero_drag {
+            0.0
+        } else {
+            speed - speed.signum() * rolling_and_aero_drag
+        }
     }
 }
 
 fn vehicle_steering_step(steering: f32, input: f32, dt: f32) -> f32 {
-    let blend = (dt.max(0.0) * 8.0).clamp(0.0, 1.0);
-    steering + (input.clamp(-1.0, 1.0) - steering) * blend
+    let input = input.clamp(-1.0, 1.0);
+    let dt = dt.max(0.0);
+    let steering_rate = if input.abs() > 0.01 { 3.2 } else { 2.0 };
+    let max_change = steering_rate * dt;
+    let change = (input - steering).clamp(-max_change, max_change);
+    (steering + change).clamp(-1.0, 1.0)
+}
+
+fn vehicle_yaw_step(yaw: f32, steering: f32, speed: f32, dt: f32) -> f32 {
+    let yaw_rate = (speed / 3.2 * 0.50).clamp(-1.8, 1.8);
+    yaw - steering * yaw_rate * dt.max(0.0)
 }
 
 fn integrate_jump(
@@ -983,15 +1009,15 @@ fn controls(
             (keys.pressed(KeyCode::KeyA) as i32 - keys.pressed(KeyCode::KeyD) as i32) as f32;
         game.speed = vehicle_speed_step(game.speed, accelerating, braking, dt);
         game.steering = vehicle_steering_step(game.steering, steer_input, dt);
-        let speed_factor = (game.speed / 8.0).clamp(-1.0, 1.0);
-        game.yaw += game.steering * speed_factor * 1.8 * dt;
+        let speed_ratio = (game.speed.abs() / 24.0).clamp(0.0, 1.0);
+        game.yaw = vehicle_yaw_step(game.yaw, game.steering, game.speed, dt);
         let direction = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
         let right = Vec3::new(game.yaw.cos(), 0.0, -game.yaw.sin());
-        let grip = 1.8 + 2.2 * (game.speed.abs() / 24.0).clamp(0.0, 1.0);
-        let slide_gain = 0.16 * (game.speed.abs() / 24.0).clamp(0.0, 1.0);
+        let grip = 2.5 + 4.0 * (1.0 - speed_ratio);
+        let slide_gain = 0.28 * speed_ratio;
         game.lateral_speed = (game.lateral_speed
             + game.steering * game.speed.abs() * slide_gain * dt)
-            .clamp(-2.4, 2.4);
+            .clamp(-3.5, 3.5);
         game.lateral_speed *= (1.0 - grip * dt).max(0.0);
         let intended = (Vec2::new(direction.x, direction.z) * game.speed
             + Vec2::new(right.x, right.z) * game.lateral_speed)
@@ -1483,11 +1509,44 @@ mod tests {
     }
 
     #[test]
-    fn steering_changes_smoothly_toward_input() {
+    fn throttle_change_from_reverse_brakes_before_accelerating_forward() {
+        let first = vehicle_speed_step(-8.0, true, false, 0.25);
+        assert!(first < 0.0);
+        let at_rest = vehicle_speed_step(first, true, false, 1.0);
+        assert_eq!(at_rest, 0.0);
+        let forward = vehicle_speed_step(at_rest, true, false, 0.1);
+        assert!(forward > 0.0);
+    }
+
+    #[test]
+    fn coasting_keeps_momentum_then_settles_without_reversing() {
+        let first = vehicle_speed_step(20.0, false, false, 0.1);
+        assert!(first < 20.0 && first > 0.0);
+        let mut speed = 1.0;
+        for _ in 0..300 {
+            speed = vehicle_speed_step(speed, false, false, 0.05);
+            assert!(speed >= 0.0);
+        }
+        assert_eq!(speed, 0.0);
+    }
+
+    #[test]
+    fn steering_changes_smoothly_toward_input_and_self_centers() {
         let first = vehicle_steering_step(0.0, 1.0, 0.05);
         let second = vehicle_steering_step(first, 1.0, 0.05);
         assert!(first > 0.0 && first < 1.0);
         assert!(second > first && second < 1.0);
+        let centered = vehicle_steering_step(second, 0.0, 0.05);
+        assert!(centered < second && centered > 0.0);
+    }
+
+    #[test]
+    fn steering_turns_left_in_forward_motion_and_reverses_in_reverse() {
+        let forward = vehicle_yaw_step(0.0, 1.0, 12.0, 0.1);
+        let reverse = vehicle_yaw_step(0.0, 1.0, -12.0, 0.1);
+        assert!(forward < 0.0);
+        assert!(reverse > 0.0);
+        assert_eq!(vehicle_yaw_step(0.7, 1.0, 12.0, 0.0), 0.7);
     }
 
     #[test]
