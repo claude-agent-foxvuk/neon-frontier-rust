@@ -506,12 +506,15 @@ fn setup(
 
     commands
         .spawn((
-            Mesh3d(cube.clone()),
-            MeshMaterial3d(body.clone()),
-            Transform::from_translation(game.car).with_scale(Vec3::new(1.9, 0.9, 4.0)),
+            Transform::from_translation(game.car),
             CarVisual,
         ))
         .with_children(|parent| {
+            parent.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(body.clone()),
+                Transform::from_scale(Vec3::new(1.9, 0.9, 4.0)),
+            ));
             parent.spawn((
                 Mesh3d(cube.clone()),
                 MeshMaterial3d(glass.clone()),
