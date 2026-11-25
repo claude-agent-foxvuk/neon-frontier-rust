@@ -19,6 +19,20 @@ fn traffic_car_overlaps_body(position: Vec2, along_x: bool, direction: f32, obst
     )
 }
 
+fn resolve_traffic_body_pairs(bodies: &mut [Body]) -> Vec<bool> {
+    let original_centers: Vec<_> = bodies.iter().map(|body| body.center).collect();
+    crate::physics::resolve_body_pairs(bodies);
+
+    let mut moved = Vec::with_capacity(bodies.len());
+    for (body, original) in bodies.iter_mut().zip(original_centers) {
+        if vehicle_city_collision(body.center, body.yaw) {
+            body.center = original;
+        }
+        moved.push(body.center.distance_squared(original) > 1.0e-6);
+    }
+    moved
+}
+
 pub(super) fn simulate_city_life(
     time: Res<Time>,
     mut probe: ResMut<PlayerProbe>,
@@ -237,6 +251,32 @@ pub(super) fn simulate_city_life(
         ));
     }
 
+    let mut pair_bodies: Vec<Body> = traffic
+        .iter_mut()
+        .map(|(transform, car)| traffic_vehicle_body(transform, car.along_x, car.direction))
+        .collect();
+    let pair_moved = resolve_traffic_body_pairs(&mut pair_bodies);
+    for (index, ((mut transform, mut car), body)) in
+        traffic.iter_mut().zip(pair_bodies.into_iter()).enumerate()
+    {
+        if pair_moved[index] {
+            let current = Vec2::new(transform.translation.x, transform.translation.z);
+            let forward = (if car.along_x { Vec2::X } else { Vec2::Y }) * car.direction;
+            let side = Vec2::new(-forward.y, forward.x);
+            car.lane_offset += (body.center - current).dot(side);
+            car.stop_timer = car.stop_timer.max(0.15);
+            transform.translation.x = body.center.x;
+            transform.translation.z = body.center.y;
+        }
+        traffic_vehicle_bodies[index] =
+            traffic_vehicle_body(&transform, car.along_x, car.direction);
+        car_positions[index] = transform.translation;
+        car_bodies[index] = (
+            Vec2::new(transform.translation.x, transform.translation.z),
+            CAR_BODY_RADIUS,
+        );
+    }
+
     let mut citizen_index = 0;
     for (mut transform, mut citizen) in &mut citizens {
         let index = citizen_index;
@@ -449,9 +489,9 @@ pub(super) fn simulate_city_life(
             next = crate::physics::move_with_slide(position, movement, |point| {
                 city_collision(point, OFFICER_BODY_RADIUS)
                     || point.distance(player_flat) < OFFICER_BODY_RADIUS + player_radius
-                    || blockers.iter().any(|center| {
-                        center.distance(point) < CAR_BODY_RADIUS + OFFICER_BODY_RADIUS
-                    })
+                    || blockers
+                        .iter()
+                        .any(|center| center.distance(point) < CAR_BODY_RADIUS + OFFICER_BODY_RADIUS)
             });
         }
         transform.translation.x = next.x;
@@ -566,5 +606,20 @@ mod tests {
             1.0,
             &nearby_pedestrian,
         ));
+    }
+
+    #[test]
+    fn overlapping_traffic_vehicles_are_separated_symmetrically_by_obb() {
+        let mut bodies = [
+            Body::vehicle(Vec2::new(0.0, 0.0), 0.0),
+            Body::vehicle(Vec2::new(0.0, 1.4), std::f32::consts::FRAC_PI_2),
+        ];
+        assert!(bodies_overlap(&bodies[0], &bodies[1]));
+
+        let moved = resolve_traffic_body_pairs(&mut bodies);
+
+        assert!(moved.iter().all(|did_move| *did_move));
+        assert!(!bodies_overlap(&bodies[0], &bodies[1]));
+        assert!(bodies.iter().all(|body| body.center.is_finite()));
     }
 }
