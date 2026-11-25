@@ -244,7 +244,7 @@ fn restore_world(
     probe.health = snapshot.health.clamp(0.0, 100.0);
     wanted.level = snapshot.wanted_level.min(WANTED_LEVEL_MAX);
     wanted.decay_timer = snapshot.wanted_timer.max(0.0);
-    for ((transform, car), saved) in traffic.iter_mut().zip(snapshot.traffic.iter()) {
+    for ((mut transform, mut car), saved) in traffic.iter_mut().zip(snapshot.traffic.iter()) {
         transform.translation = saved.position;
         transform.rotation = traffic_rotation(saved.along_x, saved.direction);
         car.speed = saved.speed;
@@ -254,7 +254,7 @@ fn restore_world(
         car.avoid_offset = saved.lane_offset;
         car.stop_timer = saved.stop_timer;
     }
-    for ((transform, citizen), saved) in citizens.iter_mut().zip(snapshot.citizens.iter()) {
+    for ((mut transform, mut citizen), saved) in citizens.iter_mut().zip(snapshot.citizens.iter()) {
         citizen.origin = saved.origin;
         citizen.displacement = saved.displacement;
         citizen.knock_velocity = saved.knock_velocity;
@@ -264,10 +264,10 @@ fn restore_world(
         transform.translation = saved.origin + saved.displacement;
         transform.rotation = pedestrian_rotation(citizen.along_x, 1.0);
     }
-    for ((transform, _), saved) in patrols.iter_mut().zip(snapshot.patrols.iter()) {
+    for ((mut transform, _), saved) in patrols.iter_mut().zip(snapshot.patrols.iter()) {
         transform.translation = saved.position;
     }
-    for ((transform, officer, visibility), saved) in
+    for ((mut transform, mut officer, mut visibility), saved) in
         officers.iter_mut().zip(snapshot.officers.iter())
     {
         transform.translation = saved.position;
