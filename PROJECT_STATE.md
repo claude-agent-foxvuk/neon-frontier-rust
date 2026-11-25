@@ -10,7 +10,7 @@
 - GitHub currently reports this repository as public.
 
 ## Code and checks
-- The current `main` reference is `0342b8047169cf938f67dd4fa8ac7154f8b01319`.
+- The current `main` reference is `d0546b5639194f2a04594009d4fbf82ceb5238f8`.
 - Latest code workflow is #123 on `40edf8d5263adf985b8ab94419876766ba15791b`. Formatting passed; ECS release tests were in progress at the latest read. Release build, Windows startup smoke and artifact are not confirmed yet.
 - #120 on `8ed4594e383ca80b906a13749b425eaadf8ad248` passed formatting and ECS release tests; release build was in progress. Smoke and artifact are not confirmed.
 - #121 on `cc9bc7a1eaa754376331b91527defafeed376c7d` and #122 on `430a637e85da0ea08fe8d313261bd818fa3157da` passed formatting; ECS release tests were in progress. Build, smoke and artifact are not confirmed.
