@@ -1,29 +1,31 @@
 # Neon Frontier — project state
 
-`FEATURES.md` фиксирует существующий код; открытые задачи сгруппированы по приоритетам в `TODO.md`. Код и результаты Actions важнее сохранённой памяти.
+`FEATURES.md` records what exists in source; open requirements are grouped by priority in `TODO.md`. Source and observed Actions results are the project record.
 
 ## Scope and decisions
-- Windows 11, Rust 1.100+, Bevy 0.20.1; оригинальный компактный open-world action-driving prototype.
-- Формат сохранений остаётся `NEON_FRONTIER_SAVE_V1`.
-- Для Neon Frontier: без кодирующих агентов и платных сервисов; коммиты напрямую через GitHub API в `claude-agent-foxvuk/neon-frontier-rust`.
-- P3 про свидетелей, поток, пляж и воду отложен до закрытия всех пунктов выше него.
-- GitHub сообщает, что репозиторий публичный.
+- Windows 11, Rust 1.100+, Bevy 0.20.1; original compact open-world action-driving prototype.
+- Save format remains `NEON_FRONTIER_SAVE_V1`.
+- No coding agents or paid services. Commit directly through GitHub API to `claude-agent-foxvuk/neon-frontier-rust`.
+- P3 witness, traffic-stream, beach and water work stays deferred until higher-priority items are closed.
+- GitHub currently reports this repository as public.
 
 ## Code and checks
-- Последний зелёный Windows-прогон игрового кода — #117 на SHA `1d6212c7b1dc6546ca43cc989d9ac1a203bb7f3e`: форматирование, 114 ECS release-тестов, release build, 10-секундный startup smoke и upload прошли. `neon-frontier-windows-x64` — 29 866 360 байт.
-- На #117 smoke прошёл без срабатывания проверок B0001 и B0004. Это runner Windows Actions; ручной запуск EXE на ноутбуке Фокса не подтверждён.
-- Тест `sun_peaks_at_noon_and_bottoms_out_at_midnight` сравнивает `sun_height(1.5)` с эквивалентным `sun_height(0.5)` и прошёл в #115.
-- #111–#113 выявили неверное ожидание розыска после столкновения трафика без свидетеля; #114 исправил ожидание и добавил отдельный тест розыска после наезда игрока.
-- В `src/main.rs` есть тестируемая физика машины: инерционный накат, постепенное торможение перед сменой направления, самоцентрирующееся руление и сцепление с боковым скольжением. Её Windows-проверка прошла в #117.
-- В `src/main.rs` для корня машины задана `Visibility::default()`; startup smoke #117 подтвердил прохождение проверки предупреждений B0004.
-- Текущий `main` — SHA `40edf8d5263adf985b8ab94419876766ba15791b`. Добавлен ECS-регрессионный тест, проверяющий, что трафик останавливается перед OBB игрока пешком; запись и read-back подтверждены.
-- Windows runs #120–#123 ещё выполняются на разных SHA. #120 — `8ed4594e383ca80b906a13749b425eaadf8ad248`; #121 — `cc9bc7a1eaa754376331b91527defafeed376c7d`; #122 — `430a637e85da0ea08fe8d313261bd818fa3157da`; #123 — текущий `40edf8d5263adf985b8ab94419876766ba15791b`. Их тесты, сборка, smoke и артефакты пока не подтверждены.
-- Точный текст B0001 с компьютера Фокса относился к EXE из #66. #117 прошёл startup smoke, но он не доказывает весь игровой цикл, локальный запуск на ноутбуке Фокса или отсутствие всех runtime-проблем.
+- The current `main` reference is `0342b8047169cf938f67dd4fa8ac7154f8b01319`.
+- Latest code workflow is #123 on `40edf8d5263adf985b8ab94419876766ba15791b`. Formatting passed; ECS release tests were in progress at the latest read. Release build, Windows startup smoke and artifact are not confirmed yet.
+- #120 on `8ed4594e383ca80b906a13749b425eaadf8ad248` passed formatting and ECS release tests; release build was in progress. Smoke and artifact are not confirmed.
+- #121 on `cc9bc7a1eaa754376331b91527defafeed376c7d` and #122 on `430a637e85da0ea08fe8d313261bd818fa3157da` passed formatting; ECS release tests were in progress. Build, smoke and artifact are not confirmed.
+- #119–#123 were reported in progress in the latest run list. Check each result before treating its code as verified.
+- The last fully verified game workflow remains #117 on `1d6212c7b1dc6546ca43cc989d9ac1a203bb7f3e`: format, 114 ECS release tests, release build, 10-second Windows startup smoke and upload succeeded. Artifact `neon-frontier-windows-x64` was 29,866,360 bytes. Smoke on a GitHub Windows runner does not confirm a manual launch on Fox's laptop.
+- The smoke in #117 did not trigger B0001 or B0004 checks. The B0001 report from Fox concerned the older executable from #66; a short startup smoke does not prove the full gameplay loop.
+- `sun_peaks_at_noon_and_bottoms_out_at_midnight` compares `sun_height(1.5)` to its wrapped equivalent `sun_height(0.5)` and passed in #115.
+- #111–#113 exposed a wrong wanted-level expectation for traffic hitting a pedestrian without a player witness. #114 corrected the expectation and added a separate test for the player's vehicle hitting a pedestrian.
+- Vehicle inertia, coasting drag, progressive braking, self-centering steering, speed-dependent turning and lateral grip are implemented and passed Windows checks in #117.
+- An ECS regression for traffic stopping before the walking player's OBB was committed as `40edf8d`; its Windows run #123 is still in progress.
 
 ## Remaining work
-- В `TODO.md` остаются 22 открытых требования: P0 — 5, P1 — 3, P2 — 4, отложенный P3 — 10.
-- Главные открытые задачи: полная OBB-интеграция ECS, включая столкновения машин и зданий; регрессии кузова; уровни полиции 3–6; меню/F5/F9; задания, HUD и проверка производительности.
-- Проверить новые ECS-регрессии из #119–#123 по результатам Actions; пока они выполняются, пункты TODO не закрывать только на основании принятого коммита.
-- Ручная проверка свежего EXE на Windows 11 Фоксом остаётся открытой; только он может подтвердить локальный запуск, ввод и кириллицу.
+- `TODO.md` lists 22 open gameplay requirements: P0 — 5, P1 — 3, P2 — 4, deferred P3 — 10.
+- Higher-priority open work includes complete OBB integration in player movement and vehicle collisions, body/building regression coverage, police response for wanted levels 3–6, menu and F5/F9 integration checks, missions and city events, HUD scaling, performance measurements, and manual Windows 11 testing.
+- Do not close a gameplay requirement solely because its commit was accepted or one CI run passed; verify the relevant source and test evidence.
+- Fox's manual launch and gameplay check on Windows 11 remains unconfirmed. Only Fox can verify the build on his laptop, its input/display behavior and Cyrillic rendering there.
 
-Зелёный CI подтверждает форматирование, тесты и короткий старт процесса на Windows runner. Он не доказывает полный игровой цикл, FPS на RTX 3050 или ручную проверку на ноутбуке Фокса.
+A green CI run confirms the steps it actually completed on its runner. It does not prove a complete gameplay session, RTX 3050 frame rate or a manual laptop test.
