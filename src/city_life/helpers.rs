@@ -1,12 +1,19 @@
 use super::*;
 
 pub(super) fn resolve_knock(displacement: &mut Vec3, velocity: &mut Vec3, knocked: &mut f32, dt: f32) {
-    *displacement += *velocity * dt;
-    velocity.y -= KNOCK_GRAVITY * dt;
-    let damping = (1.0 - 4.0 * dt).max(0.0);
+    if !dt.is_finite() || dt <= 0.0 {
+        return;
+    }
+    // Integrate drag analytically so the impact travels similarly at different frame rates.
+    let damping = (-4.0 * dt).exp();
+    let horizontal_distance = (1.0 - damping) / 4.0;
+    displacement.x += velocity.x * horizontal_distance;
+    displacement.z += velocity.z * horizontal_distance;
     velocity.x *= damping;
     velocity.z *= damping;
-    if displacement.y < 0.0 {
+    displacement.y += velocity.y * dt - 0.5 * KNOCK_GRAVITY * dt * dt;
+    velocity.y -= KNOCK_GRAVITY * dt;
+    if displacement.y <= 0.0 {
         displacement.y = 0.0;
         velocity.y = 0.0;
     }
@@ -14,6 +21,10 @@ pub(super) fn resolve_knock(displacement: &mut Vec3, velocity: &mut Vec3, knocke
         *displacement = displacement.normalize() * MAX_KNOCK_OFFSET;
     }
     *knocked = (*knocked - dt).max(0.0);
+    // An expired knock timer must not make an airborne pedestrian stand up in midair.
+    if displacement.y > 0.0 && *knocked == 0.0 {
+        *knocked = 0.001;
+    }
 }
 
 pub(super) fn damage_citizen(citizen: &mut Citizen, damage: f32) -> bool {
@@ -342,5 +353,41 @@ mod oriented_traffic_tests {
 
         let toward_building = current + side * CAR_PASSING_OFFSET;
         assert!(vehicle_city_collision(toward_building, 0.0));
+    }
+
+    #[test]
+    fn knockback_travel_is_consistent_across_frame_rates() {
+        let integrate = |dt: f32, frames: usize| {
+            let mut position = Vec3::ZERO;
+            let mut velocity = Vec3::new(8.0, KNOCK_LIFT, 3.0);
+            let mut timer = KNOCK_SECONDS;
+            for _ in 0..frames {
+                resolve_knock(&mut position, &mut velocity, &mut timer, dt);
+            }
+            (position, velocity)
+        };
+        let (slow, slow_velocity) = integrate(0.05, 4);
+        let (fast, fast_velocity) = integrate(0.01, 20);
+        assert!(slow.distance(fast) < 1.0e-4);
+        assert!(slow_velocity.distance(fast_velocity) < 1.0e-4);
+    }
+
+    #[test]
+    fn knocked_pedestrian_stays_down_until_landing() {
+        let mut position = Vec3::new(0.0, 1.0, 0.0);
+        let mut velocity = Vec3::new(0.0, 1.0, 0.0);
+        let mut timer = 0.01;
+        resolve_knock(&mut position, &mut velocity, &mut timer, 0.05);
+        assert!(position.y > 0.0);
+        assert!(timer > 0.0);
+        for _ in 0..100 {
+            if timer <= 0.0 {
+                break;
+            }
+            resolve_knock(&mut position, &mut velocity, &mut timer, 0.05);
+        }
+        assert_eq!(position.y, 0.0);
+        assert_eq!(velocity.y, 0.0);
+        assert_eq!(timer, 0.0);
     }
 }
