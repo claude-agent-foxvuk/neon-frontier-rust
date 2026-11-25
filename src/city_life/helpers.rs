@@ -113,12 +113,6 @@ pub(super) fn traffic_obstacle_ahead_with_bodies(
     police_positions: &[Vec2],
     car_index: usize,
 ) -> bool {
-    let side = Vec2::new(-forward.y, forward.x);
-    let blocks_path = |position: Vec2| {
-        let relative = position - baseline;
-        let ahead = relative.dot(forward);
-        ahead > 0.0 && ahead < CAR_BRAKE_DISTANCE && relative.dot(side).abs() < CAR_LANE_GAP
-    };
     let detection_yaw = forward.y.atan2(forward.x);
     let braking_probe = crate::physics::Body::new(
         baseline + forward * (CAR_BRAKE_DISTANCE * 0.5),
@@ -126,11 +120,21 @@ pub(super) fn traffic_obstacle_ahead_with_bodies(
         crate::physics::VEHICLE_HALF_WIDTH,
         detection_yaw,
     );
-    blocks_path(player)
-        || (!in_vehicle && vehicle.map_or(false, |position| blocks_path(position)))
-        || police_positions
-            .iter()
-            .any(|position| blocks_path(*position))
+    let player_body = if in_vehicle {
+        crate::physics::Body::vehicle(player, detection_yaw)
+    } else {
+        crate::physics::Body::person(player)
+    };
+    crate::physics::bodies_overlap(&braking_probe, &player_body)
+        || (!in_vehicle
+            && vehicle.map_or(false, |position| {
+                let parked_vehicle = crate::physics::Body::vehicle(position, detection_yaw);
+                crate::physics::bodies_overlap(&braking_probe, &parked_vehicle)
+            }))
+        || police_positions.iter().any(|position| {
+            let patrol = crate::physics::Body::vehicle(*position, detection_yaw);
+            crate::physics::bodies_overlap(&braking_probe, &patrol)
+        })
         || traffic_bodies.iter().enumerate().any(|(other, body)| {
             other != car_index && crate::physics::bodies_overlap(&braking_probe, body)
         })
@@ -177,6 +181,19 @@ mod oriented_traffic_tests {
         )
     }
 
+    fn has_obstacle_at(position: Vec2, in_vehicle: bool, parked_vehicle: Option<Vec2>, police: &[Vec2]) -> bool {
+        traffic_obstacle_ahead_with_bodies(
+            Vec2::ZERO,
+            Vec2::X,
+            position,
+            parked_vehicle,
+            in_vehicle,
+            &[],
+            police,
+            0,
+        )
+    }
+
     #[test]
     fn traffic_braking_sensor_respects_vehicle_orientation_and_clear_adjacent_lanes() {
         let same_lane = crate::physics::Body::vehicle(Vec2::new(4.0, 0.0), 0.0);
@@ -190,5 +207,17 @@ mod oriented_traffic_tests {
             std::f32::consts::FRAC_PI_2,
         );
         assert!(has_car_ahead(crossing_lane));
+    }
+
+    #[test]
+    fn traffic_braking_sensor_uses_body_shapes_for_player_parked_car_and_patrol() {
+        let adjacent_lane = Vec2::new(4.0, 2.0);
+        assert!(!has_obstacle_at(adjacent_lane, false, None, &[]));
+        assert!(has_obstacle_at(Vec2::new(4.0, 0.0), false, None, &[]));
+        assert!(!has_obstacle_at(Vec2::new(200.0, 200.0), false, Some(adjacent_lane), &[]));
+        assert!(has_obstacle_at(Vec2::new(200.0, 200.0), false, Some(Vec2::new(4.0, 0.0)), &[]));
+        assert!(!has_obstacle_at(Vec2::new(200.0, 200.0), false, None, &[adjacent_lane]));
+        assert!(has_obstacle_at(Vec2::new(200.0, 200.0), false, None, &[Vec2::new(4.0, 0.0)]));
+        assert!(has_obstacle_at(adjacent_lane, true, None, &[]));
     }
 }
