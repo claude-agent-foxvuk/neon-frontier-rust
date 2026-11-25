@@ -36,10 +36,25 @@ jobs:
         run: |
           cargo fmt --all
           cargo fmt --all -- --check
-      - name: Test
-        run: cargo test --release
-      - name: Build release
-        run: cargo build --release
+      - name: Test with ECS diagnostics
+        run: cargo test --release --features bevy/debug
+      - name: Build release with ECS diagnostics
+        run: cargo build --release --features bevy/debug
+      - name: Launch Windows startup smoke test
+        shell: pwsh
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP 'neon-frontier-smoke.stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'neon-frontier-smoke.stderr.log'
+          $process = Start-Process -FilePath 'target/release/neon-frontier.exe' -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Start-Sleep -Seconds 8
+          if ($process.HasExited) {
+            if (Test-Path $stdout) { Get-Content $stdout }
+            if (Test-Path $stderr) { Get-Content $stderr }
+            throw "Neon Frontier exited during the 8-second startup smoke test with code $($process.ExitCode)."
+          }
+          Stop-Process -Id $process.Id -Force
+          if (Test-Path $stdout) { Get-Content $stdout }
+          if (Test-Path $stderr) { Get-Content $stderr }
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
