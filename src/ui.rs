@@ -21,6 +21,7 @@ const MENU_TEXT_LEFT: f32 = 24.0;
 const MENU_TEXT_RIGHT: f32 = 540.0;
 const MENU_FIRST_ROW_TOP: f32 = 140.0;
 const MENU_ROW_HEIGHT: f32 = 24.0;
+const HUD_MAX_LINE_CHARS: usize = 48;
 
 #[derive(Component)]
 pub struct Hud;
@@ -95,6 +96,31 @@ fn wanted_status(state: &str) -> String {
     format!("{mode}\nРОЗЫСК {level}/6 • {response}")
 }
 
+fn wrap_hud_line(line: &str) -> String {
+    let mut wrapped = String::new();
+    let mut current_chars = 0;
+    for word in line.split_whitespace() {
+        let word_chars = word.chars().count();
+        if current_chars > 0 && current_chars + 1 + word_chars > HUD_MAX_LINE_CHARS {
+            wrapped.push('\n');
+            current_chars = 0;
+        } else if current_chars > 0 {
+            wrapped.push(' ');
+            current_chars += 1;
+        }
+        wrapped.push_str(word);
+        current_chars += word_chars;
+    }
+    wrapped
+}
+
+fn wrap_hud_text(text: &str) -> String {
+    text.split('\n')
+        .map(wrap_hud_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn health_line(health: f32) -> String {
     let clamped = health.clamp(0.0, 100.0);
     let rounded = clamped.round() as i32;
@@ -127,7 +153,7 @@ pub fn compose_hud(
     } else {
         notice
     };
-    format!(
+    let hud = format!(
         "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n{}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • E: машина/выход • F5: сохранить • F9: загрузить\n{}",
         objective,
         credits,
@@ -137,7 +163,8 @@ pub fn compose_hud(
         speed,
         mouse_hint,
         notice
-    )
+    );
+    wrap_hud_text(&hud)
 }
 
 #[cfg(test)]
@@ -220,6 +247,26 @@ mod tests {
         assert!(hud.contains("Space: прыжок • F: удар"));
         assert!(hud.contains("ПЕШКОМ"));
         assert!(hud.contains("Сохранение загружено"));
+    }
+
+    #[test]
+    fn long_hud_lines_wrap_at_word_boundaries() {
+        let hud = compose_hud(
+            "Маршрут «Ночной маршрут»: контрольная точка северного района у набережной • 123 м",
+            999,
+            20.0,
+            "ПАУЗА • розыск: ★★★★★★ • 23:59",
+            "Сбавь скорость и нажми E, чтобы безопасно выйти из машины",
+            "Скорость: 24.0 м/с",
+            "ЛКМ: захватить мышь и управлять камерой",
+            "Сохранение не удалось загрузить, файл повреждён или отсутствует",
+        );
+
+        assert!(hud.contains("контрольная точка"));
+        assert!(hud.contains("файл повреждён или отсутствует"));
+        assert!(hud
+            .lines()
+            .all(|line| line.chars().count() <= HUD_MAX_LINE_CHARS));
     }
 
     #[test]
