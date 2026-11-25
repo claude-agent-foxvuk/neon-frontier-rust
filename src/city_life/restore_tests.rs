@@ -263,3 +263,61 @@ fn live_traffic_brakes_for_ahead_player_vehicle_using_oriented_contacts() {
         "traffic must brake before reaching the player's oriented vehicle footprint"
     );
 }
+
+#[test]
+fn live_traffic_obb_contact_knocks_down_and_damages_a_pedestrian() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(100.0, 0.9, 100.0),
+        vehicle_position: Vec3::new(100.0, 0.65, 100.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: false,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+    world.spawn((
+        Transform::from_xyz(-2.45, 0.48, 0.0),
+        TrafficCar {
+            speed: 6.0,
+            direction: 1.0,
+            along_x: true,
+            stop_timer: 0.0,
+            lane_offset: 0.0,
+            avoid_offset: 0.0,
+        },
+    ));
+    world.spawn((
+        Transform::from_xyz(0.0, 0.82, 0.0),
+        Citizen {
+            origin: Vec3::new(0.0, 0.82, 0.0),
+            phase: 0.0,
+            speed: 0.0,
+            range: 0.0,
+            along_x: false,
+            displacement: Vec3::ZERO,
+            knock_velocity: Vec3::ZERO,
+            knocked: 0.0,
+            health: CITIZEN_HEALTH,
+            dead: false,
+        },
+    ));
+
+    world
+        .run_system_once(simulate_city_life)
+        .expect("live simulation must resolve OBB contact between traffic and a pedestrian");
+
+    let snapshot = &world.resource::<WorldState>().snapshot;
+    assert_eq!(snapshot.traffic.len(), 1);
+    assert!(snapshot.traffic[0].stop_timer >= CAR_STOP_SECONDS - 1.0e-4);
+    assert_eq!(snapshot.citizens.len(), 1);
+    assert!(snapshot.citizens[0].dead);
+    assert_eq!(snapshot.citizens[0].health, 0.0);
+    assert!(snapshot.citizens[0].knocked > 0.0);
+}
