@@ -4,6 +4,21 @@ use crate::physics::bodies_overlap;
 
 use super::*;
 
+fn traffic_vehicle_body_at(position: Vec2, along_x: bool, direction: f32) -> Body {
+    traffic_vehicle_body(
+        &Transform::from_xyz(position.x, 0.48, position.y),
+        along_x,
+        direction,
+    )
+}
+
+fn traffic_car_overlaps_body(position: Vec2, along_x: bool, direction: f32, obstacle: &Body) -> bool {
+    bodies_overlap(
+        &traffic_vehicle_body_at(position, along_x, direction),
+        obstacle,
+    )
+}
+
 pub(super) fn simulate_city_life(
     time: Res<Time>,
     mut probe: ResMut<PlayerProbe>,
@@ -95,6 +110,7 @@ pub(super) fn simulate_city_life(
     let player_vehicle_body = probe
         .in_vehicle
         .then(|| vehicle_body_from_forward(player, player_forward));
+    let player_contact_body = player_vehicle_body.unwrap_or_else(|| Body::person(player_flat));
     let mut player_incident = false;
     let mut car_positions: Vec<Vec3> = traffic
         .iter()
@@ -134,19 +150,17 @@ pub(super) fn simulate_city_life(
             index,
         );
         let blocks_movement = |point: Vec2| {
-            point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
+            let moving_body = traffic_vehicle_body_at(point, car.along_x, car.direction);
+            bodies_overlap(&moving_body, &player_contact_body)
                 || parked_vehicle.map_or(false, |vehicle| {
                     point.distance(vehicle) < CAR_BODY_RADIUS * 2.0
                 })
                 || police_positions
                     .iter()
                     .any(|center| center.distance(point) < CAR_BODY_RADIUS * 2.0)
-                || traffic_vehicle_bodies
-                    .iter()
-                    .enumerate()
-                    .any(|(other, body)| {
-                        other != index && body.contains_point(point, CAR_BODY_RADIUS)
-                    })
+                || traffic_vehicle_bodies.iter().enumerate().any(|(other, body)| {
+                    other != index && bodies_overlap(&moving_body, body)
+                })
         };
 
         if blocked_ahead {
@@ -514,4 +528,39 @@ pub(super) fn simulate_city_life(
         });
     }
     world.snapshot = snapshot;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn traffic_avoidance_uses_oriented_vehicle_contacts() {
+        let parallel_lane = Body::vehicle(Vec2::new(0.0, 2.0), 0.0);
+        assert!(!traffic_car_overlaps_body(
+            Vec2::ZERO,
+            true,
+            1.0,
+            &parallel_lane,
+        ));
+
+        let crossing_vehicle = Body::vehicle(
+            Vec2::new(0.0, 1.8),
+            std::f32::consts::FRAC_PI_2,
+        );
+        assert!(traffic_car_overlaps_body(
+            Vec2::ZERO,
+            true,
+            1.0,
+            &crossing_vehicle,
+        ));
+
+        let nearby_pedestrian = Body::person(Vec2::new(0.0, 1.2));
+        assert!(traffic_car_overlaps_body(
+            Vec2::ZERO,
+            true,
+            1.0,
+            &nearby_pedestrian,
+        ));
+    }
 }
