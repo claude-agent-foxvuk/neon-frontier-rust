@@ -1,6 +1,6 @@
 # Neon Frontier — project state
 
-Last checked: 2026-11-25 16:30 UTC. Source of truth: `main`, repository files, and GitHub Actions. `FEATURES.md` lists existing code; `TODO.md` tracks outstanding work by priority.
+Last checked: 2026-11-25 16:32 UTC. Source of truth: `main`, repository files, and GitHub Actions. `FEATURES.md` lists existing code; `TODO.md` tracks outstanding work by priority.
 
 ## Scope and decisions
 - Windows 11, Rust 1.100+, Bevy 0.20.1; original compact open-world action-driving prototype.
@@ -10,9 +10,9 @@ Last checked: 2026-11-25 16:30 UTC. Source of truth: `main`, repository files, a
 - GitHub reports this repository as public.
 
 ## Current code and checks
-- Current `main` and latest game code: `8fed02d6250982aaf241c0be2c4dd012785b8f10` (`Resolve overlapping traffic vehicles with OBB`).
-- Windows runs #93 (push) and #94 (manual dispatch) both target the current SHA `8fed02d`. At 16:30 UTC both were still in progress. #94 had completed setup, checkout, toolchain and cache setup; formatting, release tests, build, Windows startup smoke and artifact upload were still pending. No artifact was listed yet.
-- Run #92 on older SHA `62af7f25f0360f555c393a17d695e7d0a9112e53` was still in progress at 16:30 UTC; formatting passed and release tests with ECS diagnostics were running. It does not test current `main`.
+- Latest gameplay commit: `8fed02d6250982aaf241c0be2c4dd012785b8f10` (`Resolve overlapping traffic vehicles with OBB`). The current README, TODO, FEATURES and PROJECT_STATE updates are documentation commits after that game code.
+- Windows runs #93 (push) and #94 (manual dispatch) both target game SHA `8fed02d`. At the latest read, 16:32 UTC, both were `in_progress`. Formatting passed and release tests with ECS diagnostics were running. Build, Windows startup smoke and artifact upload were not confirmed; no artifact was listed for #94.
+- Run #92 on the previous game SHA `62af7f25f0360f555c393a17d695e7d0a9112e53` was still in progress at 16:32 UTC; formatting passed and release tests were running. It does not test current gameplay code.
 - Run #89 on `f02e1ad0dd2200813aa1079e57c310581c902ddf` failed during tests: 99/100 passed, with `traffic_braking_sensor_respects_vehicle_orientation_and_clear_adjacent_lanes` failing because the test excluded its sole element as the current car. The index fix is in `src/city_life/helpers.rs`; #92 checks that fix, but remains pending.
 - Run #88 on `3894bf0471d20b5f480d32dec96785963d23215f` failed during `Test with ECS diagnostics`: E0502 in `src/city_life/sim.rs`. Later code copies orientation values to locals before mutation; current SHA still requires a completed Windows check.
 - The periodic-sun test compares `sun_height(1.5)` to `sun_height(0.5)` with equal tolerance. It is present in `src/main.rs` and passed in historical run #81.
@@ -25,4 +25,4 @@ Last checked: 2026-11-25 16:30 UTC. Source of truth: `main`, repository files, a
 - `TODO.md` currently lists 23 open items: P0 — 5, P1 — 4, P2 — 4, deferred P3 — 10. Do not start P3 until higher-priority items are closed.
 - Continue full ECS OBB integration, stable dynamic vehicle-pair separation and regression tests; then vehicle handling, police pursuit, missions/events, HUD scaling, modularization and measured RTX 3050 performance.
 - Manual launch and gameplay by Fox on Windows 11, including Russian text, menu, F5/F9, collision, police and performance, remain unverified.
-- Refresh `README.md`, `FEATURES.md`, `TODO.md` and this file only from verified code and run results. Do not count a successful compile as completion of the remaining gameplay work.
+- `README.md`, `FEATURES.md` and `TODO.md` were updated after the latest game commit. Refresh all project files only from verified code and run results. Do not count a successful compile as completion of remaining gameplay work.
