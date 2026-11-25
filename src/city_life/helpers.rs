@@ -172,9 +172,10 @@ pub(super) fn choose_safe_traffic_offset(
     side: Vec2,
     road_center: f32,
     road_half_width: f32,
-    vehicle_yaw: f32,
     mut blocked: impl FnMut(Vec2) -> bool,
 ) -> Option<f32> {
+    let forward = Vec2::new(side.y, -side.x);
+    let vehicle_yaw = forward.y.atan2(forward.x);
     for direction in [1.0, -1.0] {
         let offset = direction * CAR_PASSING_OFFSET;
         let target = baseline + side * offset;
@@ -279,19 +280,10 @@ mod oriented_traffic_tests {
     fn offset_planning_rejects_an_oriented_car_body_inside_a_building() {
         let current = Vec2::new(8.5, 5.0);
         let side = Vec2::Y;
-        let yaw = 0.0;
-        let selected = choose_safe_traffic_offset(
-            current,
-            current,
-            side,
-            0.0,
-            10.0,
-            yaw,
-            |_| false,
-        );
-        assert!(selected.is_some());
+        let selected = choose_safe_traffic_offset(current, current, side, 0.0, 10.0, |_| false);
+        assert_eq!(selected, Some(-CAR_PASSING_OFFSET));
 
-        let near_corner = Vec2::new(8.5, 10.5);
-        assert!(vehicle_city_collision(near_corner, yaw));
+        let toward_building = current + side * CAR_PASSING_OFFSET;
+        assert!(vehicle_city_collision(toward_building, 0.0));
     }
 }
