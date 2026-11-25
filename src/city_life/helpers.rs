@@ -45,6 +45,32 @@ pub(super) fn city_collision(position: Vec2, radius: f32) -> bool {
     })
 }
 
+pub(super) fn vehicle_city_collision(position: Vec2, yaw: f32) -> bool {
+    if !position.is_finite() || !yaw.is_finite() {
+        return true;
+    }
+    let (sin_yaw, cos_yaw) = yaw.sin_cos();
+    let extent_x = crate::physics::VEHICLE_HALF_LENGTH * cos_yaw.abs()
+        + crate::physics::VEHICLE_HALF_WIDTH * sin_yaw.abs();
+    let extent_z = crate::physics::VEHICLE_HALF_LENGTH * sin_yaw.abs()
+        + crate::physics::VEHICLE_HALF_WIDTH * cos_yaw.abs();
+    if position.x.abs() + extent_x > CITY_LIMIT || position.y.abs() + extent_z > CITY_LIMIT {
+        return true;
+    }
+
+    let vehicle = Body::vehicle(position, yaw);
+    (-3_i32..=2).any(|grid_x| {
+        (-3_i32..=2).any(|grid_z| {
+            let center = Vec2::new(
+                grid_x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
+                grid_z as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
+            );
+            let building = Body::new(center, BUILDING_HALF, BUILDING_HALF, 0.0);
+            crate::physics::bodies_overlap(&vehicle, &building)
+        })
+    })
+}
+
 fn building_contains(position: Vec2) -> bool {
     (-3_i32..=2).any(|grid_x| {
         (-3_i32..=2).any(|grid_z| {
@@ -228,5 +254,23 @@ mod oriented_traffic_tests {
         assert!(has_obstacle_at(far_away, false, None, &[same_lane]));
         assert!(!has_obstacle_at(adjacent_lane, true, None, &[]));
         assert!(has_obstacle_at(same_lane, true, None, &[]));
+    }
+
+    #[test]
+    fn vehicle_building_collision_uses_the_oriented_footprint() {
+        let near_building_wall = Vec2::new(7.9, 24.0);
+        assert!(city_collision(near_building_wall, CAR_BODY_RADIUS));
+        assert!(vehicle_city_collision(near_building_wall, 0.0));
+        assert!(!vehicle_city_collision(
+            near_building_wall,
+            std::f32::consts::FRAC_PI_2,
+        ));
+    }
+
+    #[test]
+    fn vehicle_city_collision_rejects_invalid_pose_and_world_edge_overlap() {
+        assert!(vehicle_city_collision(Vec2::new(f32::NAN, 0.0), 0.0));
+        assert!(vehicle_city_collision(Vec2::new(CITY_LIMIT - 1.0, 0.0), 0.0));
+        assert!(!vehicle_city_collision(Vec2::ZERO, 0.0));
     }
 }
