@@ -172,6 +172,7 @@ pub(super) fn choose_safe_traffic_offset(
     side: Vec2,
     road_center: f32,
     road_half_width: f32,
+    vehicle_yaw: f32,
     mut blocked: impl FnMut(Vec2) -> bool,
 ) -> Option<f32> {
     for direction in [1.0, -1.0] {
@@ -181,7 +182,7 @@ pub(super) fn choose_safe_traffic_offset(
             continue;
         }
         let candidate = crate::physics::move_with_slide(current, target - current, |point| {
-            city_collision(point, CAR_BODY_RADIUS) || blocked(point)
+            vehicle_city_collision(point, vehicle_yaw) || blocked(point)
         });
         if candidate.distance(target) < 0.05 {
             return Some(offset);
@@ -272,5 +273,25 @@ mod oriented_traffic_tests {
         assert!(vehicle_city_collision(Vec2::new(f32::NAN, 0.0), 0.0));
         assert!(vehicle_city_collision(Vec2::new(CITY_LIMIT - 1.0, 0.0), 0.0));
         assert!(!vehicle_city_collision(Vec2::ZERO, 0.0));
+    }
+
+    #[test]
+    fn offset_planning_rejects_an_oriented_car_body_inside_a_building() {
+        let current = Vec2::new(8.5, 5.0);
+        let side = Vec2::Y;
+        let yaw = 0.0;
+        let selected = choose_safe_traffic_offset(
+            current,
+            current,
+            side,
+            0.0,
+            10.0,
+            yaw,
+            |_| false,
+        );
+        assert!(selected.is_some());
+
+        let near_corner = Vec2::new(8.5, 10.5);
+        assert!(vehicle_city_collision(near_corner, yaw));
     }
 }
