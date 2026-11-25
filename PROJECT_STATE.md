@@ -6,7 +6,7 @@ Last checked: 2026-11-25 13:40 UTC. Source of truth: current `main`, repository 
 - Windows 11, Rust 1.100+, Bevy 0.20.1; original compact open-world action-driving game.
 - Save format stays `NEON_FRONTIER_SAVE_V1`.
 - No coding agents or paid services. Commit directly with the GitHub API to this repository.
-- Keep README, MUST_HAVE, TODO, and this file current. A green CI run does not prove manual playability.
+- Keep README, FEATURES, TODO, and this file current. A green CI run does not prove manual playability.
 
 ## Current main and startup crash
 - `main` is at `8251fadc5bc9ab525f5299f619c72d4784e7ce9d`.
@@ -23,4 +23,4 @@ Last checked: 2026-11-25 13:40 UTC. Source of truth: current `main`, repository 
 - Fix and verify the startup B0001 and query-filter type compatibility; rerun Windows checks and inspect the smoke log.
 - Finish game-play TODOs: integrate OBB collisions across player, traffic, pedestrians, and buildings; improve vehicle handling; add police response at wanted levels 3–6; add city events/missions; verify F5/F9 and menu behavior in-game.
 - Test current EXE on Fox's Windows 11 machine for startup, Cyrillic text, collisions, vehicle model, and sirens. CI cannot replace this manual check.
-- Update README, MUST_HAVE, and TODO when code or verification status changes. Keep implementation claims separate from runtime verification.
+- Update README, FEATURES, and TODO when code or verification status changes. Keep implementation claims separate from runtime verification.
