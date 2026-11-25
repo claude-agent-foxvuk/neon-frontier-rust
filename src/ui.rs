@@ -95,9 +95,22 @@ fn wanted_status(state: &str) -> String {
     format!("{mode}\nРОЗЫСК {level}/6 • {response}")
 }
 
+pub fn health_line(health: f32) -> String {
+    let clamped = health.clamp(0.0, 100.0);
+    let rounded = clamped.round() as i32;
+    if clamped <= 0.0 {
+        format!("Здоровье: {rounded}% • нужен новый заезд")
+    } else if clamped <= 25.0 {
+        format!("Здоровье: {rounded}% • тяжело ранен")
+    } else {
+        format!("Здоровье: {rounded}%")
+    }
+}
+
 pub fn compose_hud(
     objective: &str,
     credits: u32,
+    health: f32,
     state: &str,
     interaction: &str,
     speed: &str,
@@ -115,9 +128,10 @@ pub fn compose_hud(
         notice
     };
     format!(
-        "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • E: машина/выход • F5: сохранить • F9: загрузить\n{}",
+        "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n{}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • E: машина/выход • F5: сохранить • F9: загрузить\n{}",
         objective,
         credits,
+        health_line(health),
         wanted_status(state),
         interaction,
         speed,
@@ -177,10 +191,21 @@ mod tests {
     }
 
     #[test]
+    fn health_line_reports_whole_percentages_and_damage_states() {
+        assert_eq!(health_line(100.0), "Здоровье: 100%");
+        assert_eq!(health_line(64.4), "Здоровье: 64%");
+        assert!(health_line(20.0).contains("тяжело ранен"));
+        assert!(health_line(0.0).contains("нужен новый заезд"));
+        assert!(health_line(-5.0).contains("0%"));
+        assert_eq!(health_line(f32::NAN).contains('%'), true);
+    }
+
+    #[test]
     fn hud_shows_objective_controls_and_notice() {
         let hud = compose_hud(
             "Маршрут «Три маяка»: точка 1/3 • 12 м",
             100,
+            73.0,
             "ПЕШКОМ",
             "E: сесть в машину",
             "",
@@ -190,6 +215,7 @@ mod tests {
 
         assert!(hud.contains("точка 1/3"));
         assert!(hud.contains("Кредиты: 100"));
+        assert!(hud.contains("Здоровье: 73%"));
         assert!(hud.contains("WASD: движение/газ"));
         assert!(hud.contains("Space: прыжок • F: удар"));
         assert!(hud.contains("ПЕШКОМ"));
@@ -201,6 +227,7 @@ mod tests {
         let hud = compose_hud(
             "Маршрут выполнен! Награда получена",
             100,
+            100.0,
             "ПЕШКОМ",
             "E: сесть в машину",
             "",
