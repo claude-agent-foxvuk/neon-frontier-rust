@@ -111,7 +111,6 @@ fn wrap_hud_line(line: &str) -> String {
             wrapped.push('\n');
             current_chars = 0;
         }
-        let mut chunk = String::new();
         for character in word.chars() {
             if current_chars == HUD_MAX_LINE_CHARS {
                 wrapped.push('\n');
@@ -119,13 +118,6 @@ fn wrap_hud_line(line: &str) -> String {
             }
             wrapped.push(character);
             current_chars += 1;
-            if current_chars == HUD_MAX_LINE_CHARS {
-                wrapped.push('\n');
-                current_chars = 0;
-            }
-        }
-        if !chunk.is_empty() {
-            wrapped.push_str(&chunk);
         }
     }
     wrapped
@@ -267,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn long_hud_lines_wrap_at_word_boundaries() {
+    fn long_hud_lines_wrap_without_cutting_long_words() {
         let hud = compose_hud(
             "Маршрут «Ночной маршрут»: контрольная точка северного района у набережной • 123 м",
             999,
@@ -297,6 +289,12 @@ mod tests {
         assert!(wrapped
             .lines()
             .all(|line| line.chars().count() <= HUD_MAX_LINE_CHARS));
+    }
+
+    #[test]
+    fn exact_limit_hud_word_does_not_add_an_empty_line() {
+        let word = "Ж".repeat(HUD_MAX_LINE_CHARS);
+        assert_eq!(wrap_hud_line(&word), word);
     }
 
     #[test]
