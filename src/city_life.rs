@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::physics::{bodies_overlap, Body};
+
 const CITY_LIMIT: f32 = 160.0;
 const ROAD_SPACING: f32 = 48.0;
 const ROAD_HALF_WIDTH: f32 = 5.5;
@@ -11,7 +13,6 @@ const CAR_BRAKE_DISTANCE: f32 = 7.5;
 const CAR_LANE_GAP: f32 = 3.4;
 const CAR_LANE_OFFSET: f32 = 2.1;
 const CAR_PASSING_OFFSET: f32 = CAR_BODY_RADIUS * 2.0 + 0.2;
-const CAR_HIT_DISTANCE: f32 = 3.2;
 const CAR_STOP_SECONDS: f32 = 1.1;
 const OFFICER_BODY_RADIUS: f32 = 0.34;
 const OFFICER_SPEED: f32 = 5.2;
@@ -328,6 +329,27 @@ impl Plugin for CityLifePlugin {
 fn traffic_rotation(along_x: bool, direction: f32) -> Quat {
     let forward = (if along_x { Vec3::X } else { Vec3::Z }) * direction;
     Quat::from_rotation_y(forward.x.atan2(forward.z))
+}
+
+fn vehicle_body_from_forward(position: Vec3, forward: Vec3) -> Body {
+    let forward = Vec2::new(forward.x, forward.z);
+    let forward = if forward.length_squared() > 1.0e-6 {
+        forward.normalize()
+    } else {
+        Vec2::Y
+    };
+    Body::vehicle(
+        Vec2::new(position.x, position.z),
+        forward.y.atan2(forward.x),
+    )
+}
+
+fn traffic_vehicle_body(transform: &Transform, along_x: bool, direction: f32) -> Body {
+    let forward = (if along_x { Vec2::X } else { Vec2::Y }) * direction;
+    vehicle_body_from_forward(
+        transform.translation,
+        Vec3::new(forward.x, 0.0, forward.y),
+    )
 }
 
 fn pedestrian_rotation(along_x: bool, direction: f32) -> Quat {
@@ -951,10 +973,17 @@ fn simulate_city_life(
     } else {
         Vec3::NEG_Z
     };
+    let player_vehicle_body = probe
+        .in_vehicle
+        .then(|| vehicle_body_from_forward(player, player_forward));
     let mut player_incident = false;
     let mut car_positions: Vec<Vec3> = traffic
         .iter()
         .map(|(transform, _)| transform.translation)
+        .collect();
+    let mut traffic_vehicle_bodies: Vec<Body> = traffic
+        .iter()
+        .map(|(transform, car)| traffic_vehicle_body(transform, car.along_x, car.direction))
         .collect();
     let citizen_positions: Vec<Vec3> = citizens
         .iter()
@@ -993,12 +1022,12 @@ fn simulate_city_life(
                 || police_positions
                     .iter()
                     .any(|center| center.distance(point) < CAR_BODY_RADIUS * 2.0)
-                || car_positions.iter().enumerate().any(|(other, position)| {
-                    if other == index {
-                        return false;
-                    }
-                    Vec2::new(position.x, position.z).distance(point) < CAR_BODY_RADIUS * 2.0
-                })
+                || traffic_vehicle_bodies
+                    .iter()
+                    .enumerate()
+                    .any(|(other, body)| {
+                        other != index && body.contains_point(point, CAR_BODY_RADIUS)
+                    })
         };
 
         if blocked_ahead {
@@ -1046,12 +1075,15 @@ fn simulate_city_life(
             transform.translation.z = candidate.y;
             car_positions[index] = transform.translation;
         }
+        traffic_vehicle_bodies[index] =
+            traffic_vehicle_body(&transform, car.along_x, car.direction);
         for (citizen_index, position) in citizen_positions.iter().enumerate() {
-            let flat = Vec2::new(
-                transform.translation.x - position.x,
-                transform.translation.z - position.z,
-            );
-            if flat.length() < CAR_HIT_DISTANCE {
+            let person_body = Body::person(Vec2::new(position.x, position.z));
+            if bodies_overlap(&traffic_vehicle_bodies[index], &person_body) {
+                let flat = Vec2::new(
+                    transform.translation.x - position.x,
+                    transform.translation.z - position.z,
+                );
                 let push = if flat.length() > 1.0e-4 {
                     flat.normalize()
                 } else {
@@ -1104,7 +1136,11 @@ fn simulate_city_life(
         }
         let to_player = Vec2::new(current.x - player.x, current.z - player.z);
         let player_distance = to_player.length();
-        if probe.in_vehicle && player_distance < CAR_HIT_DISTANCE {
+        let person_body = Body::person(Vec2::new(current.x, current.z));
+        if player_vehicle_body
+            .as_ref()
+            .map_or(false, |vehicle| bodies_overlap(vehicle, &person_body))
+        {
             let push = if player_distance > 1.0e-4 {
                 to_player.normalize()
             } else {
@@ -1391,6 +1427,42 @@ mod tests {
         ] {
             assert!((traffic_rotation(along_x, direction) * Vec3::Z).distance(expected) < 1.0e-5);
         }
+    }
+
+    #[test]
+    fn oriented_vehicle_overlaps_pedestrian_on_its_footprint() {
+        let vehicle = traffic_vehicle_body(&Transform::from_xyz(0.0, 0.0, 0.0), true, 1.0);
+        let pedestrian = Body::person(Vec2::new(1.8, 0.0));
+
+        assert!(bodies_overlap(&vehicle, &pedestrian));
+    }
+
+    #[test]
+    fn oriented_vehicle_does_not_hit_beyond_its_side_or_length() {
+        let vehicle = traffic_vehicle_body(&Transform::from_xyz(0.0, 0.0, 0.0), true, 1.0);
+
+        assert!(!bodies_overlap(
+            &vehicle,
+            &Body::person(Vec2::new(0.0, 1.5)),
+        ));
+        assert!(!bodies_overlap(
+            &vehicle,
+            &Body::person(Vec2::new(3.0, 0.0)),
+        ));
+    }
+
+    #[test]
+    fn oriented_vehicle_footprint_respects_a_ninety_degree_rotation() {
+        let vehicle = traffic_vehicle_body(&Transform::from_xyz(0.0, 0.0, 0.0), false, 1.0);
+
+        assert!(bodies_overlap(
+            &vehicle,
+            &Body::person(Vec2::new(0.0, 1.8)),
+        ));
+        assert!(!bodies_overlap(
+            &vehicle,
+            &Body::person(Vec2::new(1.5, 0.0)),
+        ));
     }
 
     #[test]
