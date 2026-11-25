@@ -429,7 +429,10 @@ pub fn decode_snapshot(text: &str) -> Option<Snapshot> {
             driving,
             bloom,
             world_time: DEFAULT_WORLD_TIME,
-            world: WorldSnapshot::default(),
+            world: WorldSnapshot {
+                health: 100.0,
+                ..Default::default()
+            },
         };
         return valid_snapshot(&snapshot).then_some(snapshot);
     };
