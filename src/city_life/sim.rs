@@ -186,8 +186,9 @@ pub(super) fn simulate_city_life(
             let lateral_step = (car.avoid_offset - car.lane_offset)
                 .clamp(-car.speed.abs() * dt, car.speed.abs() * dt);
             let lateral_target = current + side * lateral_step;
+            let vehicle_yaw = traffic_vehicle_body_at(current, car.along_x, car.direction).yaw;
             let shifted = crate::physics::move_with_slide(current, side * lateral_step, |point| {
-                city_collision(point, CAR_BODY_RADIUS) || blocks_movement(point)
+                vehicle_city_collision(point, vehicle_yaw) || blocks_movement(point)
             });
             let lateral_clear = shifted.distance(lateral_target) < 0.05;
             car.lane_offset += (shifted - current).dot(side);
@@ -198,7 +199,7 @@ pub(super) fn simulate_city_life(
             if lateral_clear && (!blocked_ahead || has_passing_clearance) {
                 let delta = forward * car.speed * dt;
                 candidate = crate::physics::move_with_slide(candidate, delta, |point| {
-                    city_collision(point, CAR_BODY_RADIUS) || blocks_movement(point)
+                    vehicle_city_collision(point, vehicle_yaw) || blocks_movement(point)
                 });
                 if candidate.distance(shifted) < delta.length() * 0.5 && blocked_ahead {
                     car.stop_timer = 0.2;
@@ -375,8 +376,9 @@ pub(super) fn simulate_city_life(
                     .filter(|(other, _)| *other != index)
                     .map(|(_, position)| *position),
             );
+            let vehicle_yaw = movement.y.atan2(movement.x);
             let next = crate::physics::move_with_slide(position, movement, |point| {
-                city_collision(point, CAR_BODY_RADIUS)
+                vehicle_city_collision(point, vehicle_yaw)
                     || point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
                     || blockers
                         .iter()
