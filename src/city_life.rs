@@ -164,6 +164,10 @@ impl WantedState {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CitizenSave {
     pub origin: Vec3,
+    pub phase: f32,
+    pub speed: f32,
+    pub range: f32,
+    pub along_x: bool,
     pub displacement: Vec3,
     pub knock_velocity: Vec3,
     pub knocked: f32,
@@ -178,12 +182,14 @@ pub struct TrafficSave {
     pub direction: f32,
     pub along_x: bool,
     pub lane_offset: f32,
+    pub avoid_offset: f32,
     pub stop_timer: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PatrolSave {
     pub position: Vec3,
+    pub phase: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -233,14 +239,23 @@ fn restore_world(
         ),
     >,
     patrols: &mut Query<
-        (&mut Transform, &PolicePatrol),
+        (&mut Transform, &mut PolicePatrol),
         (Without<TrafficCar>, Without<Citizen>, Without<FootOfficer>),
     >,
     officers: &mut Query<
         (&mut Transform, &mut FootOfficer, &mut Visibility),
         (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>),
     >,
-) {
+) -> bool {
+    if !crate::save::restore_counts_match(
+        snapshot,
+        traffic.iter().count(),
+        citizens.iter().count(),
+        patrols.iter().count(),
+        officers.iter().count(),
+    ) {
+        return false;
+    }
     probe.health = snapshot.health.clamp(0.0, 100.0);
     wanted.level = snapshot.wanted_level.min(WANTED_LEVEL_MAX);
     wanted.decay_timer = snapshot.wanted_timer.max(0.0);
@@ -251,21 +266,26 @@ fn restore_world(
         car.direction = saved.direction;
         car.along_x = saved.along_x;
         car.lane_offset = saved.lane_offset;
-        car.avoid_offset = saved.lane_offset;
+        car.avoid_offset = saved.avoid_offset;
         car.stop_timer = saved.stop_timer;
     }
     for ((mut transform, mut citizen), saved) in citizens.iter_mut().zip(snapshot.citizens.iter()) {
         citizen.origin = saved.origin;
+        citizen.phase = saved.phase;
+        citizen.speed = saved.speed;
+        citizen.range = saved.range;
+        citizen.along_x = saved.along_x;
         citizen.displacement = saved.displacement;
         citizen.knock_velocity = saved.knock_velocity;
         citizen.knocked = saved.knocked;
         citizen.health = saved.health;
         citizen.dead = saved.dead;
         transform.translation = saved.origin + saved.displacement;
-        transform.rotation = pedestrian_rotation(citizen.along_x, 1.0);
+        transform.rotation = pedestrian_rotation(saved.along_x, 1.0);
     }
-    for ((mut transform, _), saved) in patrols.iter_mut().zip(snapshot.patrols.iter()) {
+    for ((mut transform, mut patrol), saved) in patrols.iter_mut().zip(snapshot.patrols.iter()) {
         transform.translation = saved.position;
+        patrol.phase = saved.phase;
     }
     for ((mut transform, mut officer, mut visibility), saved) in
         officers.iter_mut().zip(snapshot.officers.iter())
@@ -279,6 +299,7 @@ fn restore_world(
             Visibility::Hidden
         };
     }
+    true
 }
 
 pub struct CityLifePlugin;
@@ -850,7 +871,7 @@ fn simulate_city_life(
         ),
     >,
     mut patrols: Query<
-        (&mut Transform, &PolicePatrol),
+        (&mut Transform, &mut PolicePatrol),
         (Without<TrafficCar>, Without<Citizen>, Without<FootOfficer>),
     >,
     mut officers: Query<
@@ -1274,12 +1295,17 @@ fn simulate_city_life(
             direction: car.direction,
             along_x: car.along_x,
             lane_offset: car.lane_offset,
+            avoid_offset: car.avoid_offset,
             stop_timer: car.stop_timer,
         });
     }
     for (_, citizen) in &mut citizens {
         snapshot.citizens.push(CitizenSave {
             origin: citizen.origin,
+            phase: citizen.phase,
+            speed: citizen.speed,
+            range: citizen.range,
+            along_x: citizen.along_x,
             displacement: citizen.displacement,
             knock_velocity: citizen.knock_velocity,
             knocked: citizen.knocked,
@@ -1287,9 +1313,10 @@ fn simulate_city_life(
             dead: citizen.dead,
         });
     }
-    for (transform, _) in &mut patrols {
+    for (transform, patrol) in &mut patrols {
         snapshot.patrols.push(PatrolSave {
             position: transform.translation,
+            phase: patrol.phase,
         });
     }
     for (transform, officer, _) in &mut officers {
