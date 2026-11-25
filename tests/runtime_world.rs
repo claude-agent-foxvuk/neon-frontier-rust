@@ -38,7 +38,12 @@ mod city_life {
             >,
             mut officers: Query<
                 (&mut Transform, &mut FootOfficer, &mut Visibility),
-                (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>),
+                (
+                    Without<TrafficCar>,
+                    Without<Citizen>,
+                    Without<PolicePatrol>,
+                    Without<PoliceSirenLight>,
+                ),
             >,
         ) {
             let saved = restore.0.take().expect("loaded V1 world is pending");
@@ -79,7 +84,12 @@ mod city_life {
             >,
             mut officers: Query<
                 (&mut Transform, &mut FootOfficer, &mut Visibility),
-                (Without<TrafficCar>, Without<Citizen>, Without<PolicePatrol>),
+                (
+                    Without<TrafficCar>,
+                    Without<Citizen>,
+                    Without<PolicePatrol>,
+                    Without<PoliceSirenLight>,
+                ),
             >,
         ) {
             let saved = restore.0.take().expect("loaded V1 world is pending");
