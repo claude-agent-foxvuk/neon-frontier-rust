@@ -215,14 +215,14 @@ fn main_update_world_queries_initialize_without_conflicts() {
 }
 
 #[test]
-fn live_traffic_brakes_for_ahead_player_vehicle_using_obb_contacts() {
+fn live_traffic_brakes_for_ahead_player_vehicle_using_oriented_contacts() {
     let mut world = World::new();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
     world.insert_resource(PlayerProbe {
-        position: Vec3::new(12.0, 0.65, 0.0),
-        vehicle_position: Vec3::new(12.0, 0.65, 0.0),
+        position: Vec3::new(10.0, 0.65, 0.0),
+        vehicle_position: Vec3::new(10.0, 0.65, 0.0),
         forward: Vec3::NEG_Z,
         in_vehicle: true,
         punch: false,
