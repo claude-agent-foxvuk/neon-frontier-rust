@@ -1,26 +1,25 @@
 # Neon Frontier — project state
 
-Last checked: 2026-11-25 19:08 UTC. Source of truth: `main`, repository files and GitHub Actions. `FEATURES.md` lists code already present; `TODO.md` tracks open work by priority.
+Текущее состояние сверено по `main`, файлам проекта и GitHub Actions. Последний коммит синхронизации документов: `678e53c238768144bae07bfe69f47cca59863cdb`. `FEATURES.md` фиксирует уже имеющийся код; открытая работа сгруппирована по приоритетам в `TODO.md`.
 
 ## Scope and decisions
-- Windows 11, Rust 1.100+, Bevy 0.20.1; original compact open-world action-driving prototype.
-- Save format remains `NEON_FRONTIER_SAVE_V1`.
-- No coding agents or paid services. Commit directly through GitHub API to `claude-agent-foxvuk/neon-frontier-rust`.
-- P3 witness/streaming behavior, beach and water stay deferred until higher-priority TODO items are done.
-- GitHub reports this repository as public.
+- Windows 11, Rust 1.100+, Bevy 0.20.1; оригинальный компактный open-world action-driving prototype.
+- Формат сохранений остаётся `NEON_FRONTIER_SAVE_V1`.
+- Для Neon Frontier: без кодирующих агентов и платных сервисов; коммиты напрямую через GitHub API в `claude-agent-foxvuk/neon-frontier-rust`.
+- P3 про свидетелей, поток, пляж и воду отложен до закрытия всех пунктов выше него.
+- GitHub сообщает, что репозиторий публичный.
 
 ## Code and checks
-- Last code SHA read before this document update: `2c1aabacd412db90c154dcaeafd1ea029925017c`. The prior commit `6da5ce5ad63d3f6ad1900995a34b77bf874fc276` updates pedestrian knockback: analytic horizontal drag, ballistic vertical integration and continuation until landing. Two new helper tests compare frame rates and check landing; they are not yet verified by CI.
-- The traffic-pedestrian test was corrected to expect no wanted level for a distant player; a separate test checks wanted for the player's own vehicle impact. This correction is in `2c1aabacd412db90c154dcaeafd1ea029925017c`. The new tests are not yet verified by CI.
-- Run #109 succeeded on older SHA `a1d544601ac483a16027ac36f6330d89549b0555`: formatting, ECS release tests, release build, 10-second Windows startup smoke and upload passed. Artifact `neon-frontier-windows-x64`: 29,867,517 bytes. It does not cover the later code.
-- Run #108 succeeded on older SHA `b3432d33788d1336b966dfdbc625c2cc5447af28`; artifact: 29,867,513 bytes.
-- Runs #110, #111 and #112 were still running ECS tests when checked at 19:07 UTC. #111 and #112 include the old traffic-pedestrian test expectation; inspect their actual results rather than assuming failure.
-- Run #113 started for `6da5ce5ad63d3f6ad1900995a34b77bf874fc276`. Run #114 started for `2c1aabacd412db90c154dcaeafd1ea029925017c`; at 19:08 UTC it was restoring cache, with formatting, tests, build, smoke and artifact still pending. This document commit may change `main` after that code SHA.
-- The last TODO summary listed 23 gameplay requirements plus a Windows check on exact `main`. No gameplay item has been closed solely based on these changes. P3 is deferred.
+- Run #114 на игровом SHA `2c1aabacd412db90c154dcaeafd1ea029925017c` прошёл форматирование, 114 ECS release-тестов, release build, 10-секундный Windows startup smoke и upload. `neon-frontier-windows-x64` — 29 867 414 байт.
+- #111–#113 падали на тесте `live_traffic_collision_knocks_down_pedestrian_and_raises_wanted_level`: было ожидаемо 1 звезда при фактическом уровне 0. Тестовое ожидание исправлено в #114; без свидетеля столкновение трафика не повышает розыск, а наезд игрока проверяется отдельно.
+- #110 завершился успешно, включая загрузку Windows EXE. #114 остаётся последним подтверждённым игровым кодом.
+- После #114 `main` передвинулся документационными коммитами; код игры не менялся. Обновлённая документация всё ещё требует отдельного Windows workflow на точном текущем HEAD.
+- Старый EXE из #66, по сообщению Fox, падал с B0001. Более поздний CI smoke успешен, но ручной запуск и игровой тест на ноутбуке Fox не подтверждены.
+- В TODO осталось 24 открытых пункта: 23 игровых P0–P3 и проверка Windows workflow на точном текущем HEAD. Ни один игровой пункт не закрывается только успешной сборкой.
 
 ## Remaining work
-- Priorities above P3: complete ECS OBB integration, stable vehicle-pair behavior, game-level collision regressions, vehicle handling, police behavior, menu/F5/F9 integration checks, missions and events, HUD scaling, graphics/performance validation.
-- Manually launch and test the current Windows EXE on Fox's Windows 11 laptop, including Russian text, menu, F5/F9, collisions, police and performance.
-- Require formatting, tests, release build, Windows startup smoke and artifact upload on the exact current `main` before claiming the current-HEAD workflow is green.
+- Высший приоритет: добиться воспроизводимой игровой проверки Windows, расширить OBB-коллизии ECS и интеграционные регрессии; улучшить автомобильную инерцию, торможение, сцепление и управляемый занос.
+- Далее: проверка полиции и меню/F5/F9, HUD, задания и производительность.
+- Ручная проверка EXE на Windows 11 Фоксом остаётся открытой; только владелец может подтвердить своё локальное поведение.
 
-A successful compile or an older green run does not complete the remaining gameplay work.
+Зелёный CI подтверждает форматирование, тесты и короткий старт процесса на Windows runner. Он не доказывает прохождение полного игрового цикла, FPS на RTX 3050 или отсутствие всех проблем на ноутбуке Fox.
