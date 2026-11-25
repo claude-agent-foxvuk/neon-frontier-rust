@@ -1,7 +1,9 @@
 use bevy::prelude::Vec2;
 
 const MAX_SUBSTEP: f32 = 0.3;
-const SEPARATION_PASSES: usize = 6;
+const SEPARATION_PASSES: usize = 16;
+const CONTACT_SLOP: f32 = 0.02;
+const MIN_DISTANCE_SQUARED: f32 = 1.0e-8;
 
 pub fn move_with_slide(start: Vec2, delta: Vec2, mut blocked: impl FnMut(Vec2) -> bool) -> Vec2 {
     let distance = delta.length();
@@ -45,23 +47,31 @@ pub fn separate_from_circles(
     clearance: f32,
     obstacles: &[(Vec2, f32)],
 ) -> Vec2 {
+    if !position.is_finite() || !clearance.is_finite() {
+        return position;
+    }
+    let clearance = clearance.max(0.0);
     for _ in 0..SEPARATION_PASSES {
         let mut moved = false;
         for (index, (center, radius)) in obstacles.iter().enumerate() {
+            if !center.is_finite() || !radius.is_finite() {
+                continue;
+            }
             let offset = position - *center;
-            let minimum = clearance + radius;
+            let minimum = clearance + radius.max(0.0);
             let distance_squared = offset.length_squared();
             if distance_squared >= minimum * minimum {
                 continue;
             }
-            let direction = if distance_squared > 1.0e-8 {
-                offset / distance_squared.sqrt()
+            let distance = distance_squared.sqrt();
+            let direction = if distance_squared > MIN_DISTANCE_SQUARED {
+                offset / distance
             } else if index % 2 == 0 {
                 Vec2::X
             } else {
                 Vec2::Y
             };
-            position += direction * (minimum - distance_squared.sqrt() + 0.02);
+            position += direction * (minimum - distance + CONTACT_SLOP);
             moved = true;
         }
         if !moved {
@@ -100,5 +110,38 @@ mod tests {
         let position = separate_from_circles(Vec2::ZERO, 0.45, &[(Vec2::ZERO, 2.2)]);
         assert!(position.length() >= 2.65);
         assert!(position.is_finite());
+    }
+
+    #[test]
+    fn crowded_vehicle_separation_clears_each_feasible_obstacle() {
+        let obstacles = [
+            (Vec2::new(-1.5, 0.0), 1.0),
+            (Vec2::new(1.5, 0.0), 1.0),
+            (Vec2::new(0.0, 2.5), 0.8),
+        ];
+        let position = separate_from_circles(Vec2::ZERO, 0.5, &obstacles);
+        assert!(position.is_finite());
+        assert!(obstacles
+            .iter()
+            .all(|(center, radius)| position.distance(*center) + 1.0e-4 >= radius + 0.5));
+    }
+
+    #[test]
+    fn separation_is_stable_when_the_actor_starts_at_circle_centers() {
+        let first = separate_from_circles(Vec2::ZERO, 0.5, &[(Vec2::ZERO, 1.0)]);
+        let second = separate_from_circles(Vec2::ZERO, 0.5, &[(Vec2::ZERO, 1.0)]);
+        assert_eq!(first, second);
+        assert!(first.is_finite());
+        assert!(first.length() >= 1.5);
+    }
+
+    #[test]
+    fn invalid_obstacle_data_does_not_create_nan_positions() {
+        let position = separate_from_circles(
+            Vec2::ZERO,
+            0.5,
+            &[(Vec2::new(f32::NAN, 0.0), 2.0), (Vec2::ONE, f32::INFINITY)],
+        );
+        assert_eq!(position, Vec2::ZERO);
     }
 }
