@@ -29,6 +29,8 @@ const PLAYER_BODY_RADIUS: f32 = 0.45;
 const PLAYER_CAR_RADIUS: f32 = 2.2;
 const WALK_LIMB_SWING: f32 = 0.55;
 const RUN_LIMB_SWING: f32 = 0.95;
+const DAY_LENGTH_SECONDS: f32 = 240.0;
+const STAR_COUNT: usize = 150;
 const SPAWN_PLAYER: Vec3 = Vec3::new(2.0, PLAYER_GROUND_Y, 2.0);
 const SPAWN_CAR: Vec3 = Vec3::new(0.0, 0.65, 6.0);
 
@@ -45,6 +47,12 @@ struct FollowCamera;
 
 #[derive(Component)]
 struct MissionMarker;
+
+#[derive(Component)]
+struct SunLight;
+
+#[derive(Component)]
+struct Star;
 
 #[derive(Component)]
 struct Limb {
@@ -73,6 +81,7 @@ struct Game {
     credits_screen: bool,
     stage: usize,
     credits: u32,
+    world_time: f32,
     buildings: Vec<Vec2>,
     notice: String,
     notice_timer: f32,
@@ -105,6 +114,7 @@ impl Default for Game {
             credits_screen: false,
             stage: 0,
             credits: 0,
+            world_time: 0.32,
             buildings: Vec::new(),
             notice: String::new(),
             notice_timer: 0.0,
@@ -150,6 +160,33 @@ fn mission_name(credits: u32) -> &'static str {
     } else {
         "Ночной маршрут"
     }
+}
+
+fn day_phase(world_time: f32) -> f32 {
+    world_time.rem_euclid(1.0)
+}
+
+fn sun_height(world_time: f32) -> f32 {
+    -(day_phase(world_time) * std::f32::consts::TAU).cos()
+}
+
+fn night_factor(world_time: f32) -> f32 {
+    ((0.05 - sun_height(world_time)) / 0.45).clamp(0.0, 1.0)
+}
+
+fn daylight_factor(world_time: f32) -> f32 {
+    (1.0 - night_factor(world_time)).clamp(0.0, 1.0)
+}
+
+fn advance_clock(world_time: f32, delta_seconds: f32) -> f32 {
+    (world_time + delta_seconds / DAY_LENGTH_SECONDS).rem_euclid(1.0)
+}
+
+fn clock_label(world_time: f32) -> String {
+    let hours = day_phase(world_time) * 24.0;
+    let whole = hours.floor() as u32;
+    let minutes = ((hours - whole as f32) * 60.0).floor() as u32;
+    format!("{:02}:{:02}", whole.min(23), minutes.min(59))
 }
 
 fn main() {
@@ -271,6 +308,11 @@ fn setup(
     let marker_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.03, 0.7, 0.95),
         emissive: LinearRgba::rgb(0.0, 3.0, 5.0),
+        ..default()
+    });
+    let star_mat = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        emissive: LinearRgba::rgb(7.0, 7.4, 8.6),
         ..default()
     });
 
@@ -417,34 +459,48 @@ fn setup(
                 Transform::from_xyz(0.0, 0.74, 0.0).with_scale(Vec3::splat(0.34)),
             ));
             for side in [-1.0_f32, 1.0] {
-                parent.spawn((
-                    Mesh3d(cube.clone()),
-                    MeshMaterial3d(player_mat.clone()),
-                    Transform::from_xyz(side * 0.40, 0.14, 0.0)
-                        .with_scale(Vec3::new(0.16, 0.62, 0.20)),
-                    Limb {
-                        phase_offset: if side < 0.0 {
-                            0.0
-                        } else {
-                            std::f32::consts::PI
+                parent
+                    .spawn((
+                        Transform::from_xyz(side * 0.40, 0.42, 0.0),
+                        Visibility::default(),
+                        Limb {
+                            phase_offset: if side < 0.0 {
+                                0.0
+                            } else {
+                                std::f32::consts::PI
+                            },
                         },
-                    },
-                ));
+                    ))
+                    .with_children(|arm| {
+                        arm.spawn((
+                            Mesh3d(cube.clone()),
+                            MeshMaterial3d(player_mat.clone()),
+                            Transform::from_xyz(0.0, -0.28, 0.0)
+                                .with_scale(Vec3::new(0.16, 0.62, 0.20)),
+                        ));
+                    });
             }
             for side in [-1.0_f32, 1.0] {
-                parent.spawn((
-                    Mesh3d(cube.clone()),
-                    MeshMaterial3d(glass.clone()),
-                    Transform::from_xyz(side * 0.17, -0.52, 0.0)
-                        .with_scale(Vec3::new(0.22, 0.74, 0.24)),
-                    Limb {
-                        phase_offset: if side < 0.0 {
-                            std::f32::consts::PI
-                        } else {
-                            0.0
+                parent
+                    .spawn((
+                        Transform::from_xyz(side * 0.17, -0.15, 0.0),
+                        Visibility::default(),
+                        Limb {
+                            phase_offset: if side < 0.0 {
+                                std::f32::consts::PI
+                            } else {
+                                0.0
+                            },
                         },
-                    },
-                ));
+                    ))
+                    .with_children(|leg| {
+                        leg.spawn((
+                            Mesh3d(cube.clone()),
+                            MeshMaterial3d(glass.clone()),
+                            Transform::from_xyz(0.0, -0.37, 0.0)
+                                .with_scale(Vec3::new(0.22, 0.74, 0.24)),
+                        ));
+                    });
             }
         });
 
@@ -506,7 +562,27 @@ fn setup(
             ..default()
         },
         Transform::from_xyz(15.0, 30.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        SunLight,
     ));
+    for index in 0..STAR_COUNT {
+        let step = index as f32;
+        let azimuth = step * 2.399_963;
+        let elevation = 0.05 + (step * 0.618_034).fract() * 0.95;
+        let horizontal = 320.0 * (1.0 - elevation).sqrt();
+        let size = 1.4 + (step * 0.372_1).fract() * 2.0;
+        commands.spawn((
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(star_mat.clone()),
+            Transform::from_xyz(
+                azimuth.cos() * horizontal,
+                40.0 + elevation * 220.0,
+                azimuth.sin() * horizontal,
+            )
+            .with_scale(Vec3::splat(size)),
+            Visibility::Hidden,
+            Star,
+        ));
+    }
     commands.spawn((
         Camera3d::default(),
         Hdr,
@@ -1021,8 +1097,10 @@ fn controls(
 }
 
 fn update_world(
-    game: Res<Game>,
+    mut game: ResMut<Game>,
     time: Res<Time>,
+    mut sun: Single<&mut DirectionalLight, With<SunLight>>,
+    mut fog: Single<&mut DistanceFog, With<FollowCamera>>,
     mut players: Query<
         (&mut Transform, &mut Visibility, &mut PlayerVisual),
         (
@@ -1031,6 +1109,7 @@ fn update_world(
             Without<FollowCamera>,
             Without<MissionMarker>,
             Without<Limb>,
+            Without<Star>,
         ),
     >,
     mut cars: Query<
@@ -1071,10 +1150,45 @@ fn update_world(
             Without<MissionMarker>,
         ),
     >,
+    mut stars: Query<
+        &mut Visibility,
+        (
+            With<Star>,
+            Without<PlayerVisual>,
+            Without<MissionMarker>,
+        ),
+    >,
     mut commands: Commands,
 ) {
     let elapsed_secs = time.elapsed_secs();
     let dt = time.delta_secs().min(0.05);
+    let daylight = daylight_factor(game.world_time);
+    let dusk = (1.0 - (2.0 * daylight - 1.0).abs()).clamp(0.0, 1.0);
+    sun.illuminance = 240.0 + daylight * daylight * 14_000.0;
+    sun.color = Color::srgb(
+        (0.55 + daylight * 0.30 + dusk * 0.34).min(1.0),
+        (0.58 + daylight * 0.33 + dusk * 0.12).min(1.0),
+        (0.74 + daylight * 0.22 - dusk * 0.28).clamp(0.28, 1.0),
+    );
+    fog.color = Color::srgb(
+        0.018 + daylight * 0.022,
+        0.030 + daylight * 0.036,
+        0.060 + daylight * 0.048,
+    );
+    fog.directional_light_color = Color::srgba(
+        0.28 + daylight * 0.12,
+        0.42 + daylight * 0.16,
+        0.72 + daylight * 0.10,
+        0.18,
+    );
+    for mut visibility in &mut stars {
+        *visibility = if daylight < 0.45 {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+    game.world_time = advance_clock(game.world_time, dt);
     let walking = game.player_moving && !game.driving;
     let step_rate = if game.player_running { 12.0 } else { 7.0 };
     let step_phase = elapsed_secs * step_rate;
@@ -1185,7 +1299,12 @@ fn update_hud(
     } else {
         "ПЕШКОМ"
     };
-    let state = format!("{} • розыск: {}", mode, "★".repeat(wanted.level as usize));
+    let state = format!(
+        "{} • розыск: {} • {}",
+        mode,
+        "★".repeat(wanted.level as usize),
+        clock_label(game.world_time)
+    );
     let interaction = if game.driving {
         if game.speed.abs() < 2.0 {
             "E: выйти из машины"
@@ -1393,5 +1512,31 @@ mod tests {
         assert_eq!(game.buildings.len(), 1);
         assert_eq!(game.credits, 0);
         assert_eq!(game.stage, 0);
+    }
+
+    #[test]
+    fn sun_peaks_at_noon_and_bottoms_out_at_midnight() {
+        assert!((sun_height(0.5) - 1.0).abs() < 1.0e-5);
+        assert!((sun_height(0.0) + 1.0).abs() < 1.0e-5);
+        assert!(sun_height(0.25).abs() < 1.0e-4);
+        assert!(sun_height(1.5).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn night_factor_runs_from_full_dark_to_full_day() {
+        assert!((night_factor(0.0) - 1.0).abs() < 1.0e-5);
+        assert_eq!(night_factor(0.5), 0.0);
+        assert!(night_factor(0.25) > 0.0 && night_factor(0.25) < 0.2);
+        assert!((daylight_factor(0.5) - 1.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn clock_wraps_after_a_full_day_and_labels_hours() {
+        let start = 0.92;
+        let next = advance_clock(start, DAY_LENGTH_SECONDS * 0.1);
+        assert!((next - 0.02).abs() < 1.0e-4);
+        assert_eq!(clock_label(0.0), "00:00");
+        assert_eq!(clock_label(0.5), "12:00");
+        assert_eq!(clock_label(0.75), "18:00");
     }
 }
