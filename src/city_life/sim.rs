@@ -133,7 +133,9 @@ pub(super) fn simulate_city_life(
 
     for (index, (mut transform, mut car)) in traffic.iter_mut().enumerate() {
         car.stop_timer = (car.stop_timer - dt).max(0.0);
-        let forward = (if car.along_x { Vec3::X } else { Vec3::Z }) * car.direction;
+        let along_x = car.along_x;
+        let direction = car.direction;
+        let forward = (if along_x { Vec3::X } else { Vec3::Z }) * direction;
         let forward = Vec2::new(forward.x, forward.z);
         let side = Vec2::new(-forward.y, forward.x);
         let current = Vec2::new(transform.translation.x, transform.translation.z);
@@ -150,7 +152,7 @@ pub(super) fn simulate_city_life(
             index,
         );
         let blocks_movement = |point: Vec2| {
-            let moving_body = traffic_vehicle_body_at(point, car.along_x, car.direction);
+            let moving_body = traffic_vehicle_body_at(point, along_x, direction);
             bodies_overlap(&moving_body, &player_contact_body)
                 || parked_vehicle.map_or(false, |vehicle| {
                     point.distance(vehicle) < CAR_BODY_RADIUS * 2.0
@@ -186,7 +188,7 @@ pub(super) fn simulate_city_life(
             let lateral_step = (car.avoid_offset - car.lane_offset)
                 .clamp(-car.speed.abs() * dt, car.speed.abs() * dt);
             let lateral_target = current + side * lateral_step;
-            let vehicle_yaw = traffic_vehicle_body_at(current, car.along_x, car.direction).yaw;
+            let vehicle_yaw = traffic_vehicle_body_at(current, along_x, direction).yaw;
             let shifted = crate::physics::move_with_slide(current, side * lateral_step, |point| {
                 vehicle_city_collision(point, vehicle_yaw) || blocks_movement(point)
             });
