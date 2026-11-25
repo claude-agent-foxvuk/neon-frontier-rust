@@ -27,6 +27,8 @@ const PUNCH_COOLDOWN: f32 = 0.45;
 const MISSION_MARKER_PULSE: f32 = 0.12;
 const PLAYER_BODY_RADIUS: f32 = 0.45;
 const PLAYER_CAR_RADIUS: f32 = 2.2;
+const WALK_LIMB_SWING: f32 = 0.55;
+const RUN_LIMB_SWING: f32 = 0.95;
 const SPAWN_PLAYER: Vec3 = Vec3::new(2.0, PLAYER_GROUND_Y, 2.0);
 const SPAWN_CAR: Vec3 = Vec3::new(0.0, 0.65, 6.0);
 
@@ -43,6 +45,11 @@ struct FollowCamera;
 
 #[derive(Component)]
 struct MissionMarker;
+
+#[derive(Component)]
+struct Limb {
+    phase_offset: f32,
+}
 
 #[derive(Resource)]
 struct Game {
@@ -163,6 +170,7 @@ fn setup(
     mut game: ResMut<Game>,
 ) {
     let cube = meshes.add(Cuboid::default());
+    let wheel_mesh = meshes.add(Cylinder::new(0.34, 0.24));
     let surfaces = procedural::add_surface_textures(&mut images);
     let ground = materials.add(StandardMaterial {
         base_color: Color::srgb(0.78, 0.86, 0.82),
@@ -209,13 +217,20 @@ fn setup(
         Color::srgb(0.76, 0.92, 0.94),
         Color::srgb(0.88, 0.82, 0.96),
     ];
+    let facade_scales = [
+        Vec2::new(3.0, 4.6),
+        Vec2::new(4.8, 5.6),
+        Vec2::new(2.6, 6.4),
+        Vec2::new(5.2, 3.4),
+    ];
     let buildings: Vec<_> = building_colors
         .into_iter()
-        .map(|color| {
+        .enumerate()
+        .map(|(index, color)| {
             materials.add(StandardMaterial {
                 base_color: color,
                 base_color_texture: Some(surfaces.facade.clone()),
-                uv_transform: bevy::math::Affine2::from_scale(Vec2::splat(4.0)),
+                uv_transform: bevy::math::Affine2::from_scale(facade_scales[index]),
                 metallic: 0.08,
                 perceptual_roughness: 0.82,
                 ..default()
@@ -235,7 +250,24 @@ fn setup(
         perceptual_roughness: 0.28,
         ..default()
     });
+    let glass = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.05, 0.12, 0.18),
+        metallic: 0.85,
+        perceptual_roughness: 0.08,
+        ..default()
+    });
+    let rubber = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.06, 0.07, 0.08),
+        perceptual_roughness: 0.95,
+        ..default()
+    });
+    let headlight = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 0.95, 0.82),
+        emissive: LinearRgba::rgb(6.0, 5.2, 3.6),
+        ..default()
+    });
     let player_mat = materials.add(Color::srgb(0.94, 0.61, 0.22));
+    let skin_mat = materials.add(Color::srgb(0.96, 0.78, 0.62));
     let marker_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.03, 0.7, 0.95),
         emissive: LinearRgba::rgb(0.0, 3.0, 5.0),
@@ -365,20 +397,94 @@ fn setup(
         }
     }
 
-    commands.spawn((
-        Mesh3d(cube.clone()),
-        MeshMaterial3d(player_mat),
-        Transform::from_translation(game.player).with_scale(Vec3::new(0.7, 1.8, 0.5)),
-        PlayerVisual {
-            facing_yaw: game.player_facing_yaw,
-        },
-    ));
-    commands.spawn((
-        Mesh3d(cube.clone()),
-        MeshMaterial3d(body),
-        Transform::from_translation(game.car).with_scale(Vec3::new(2.0, 1.3, 4.0)),
-        CarVisual,
-    ));
+    commands
+        .spawn((
+            Transform::from_translation(game.player),
+            Visibility::default(),
+            PlayerVisual {
+                facing_yaw: game.player_facing_yaw,
+            },
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(player_mat.clone()),
+                Transform::from_xyz(0.0, 0.10, 0.0).with_scale(Vec3::new(0.60, 0.80, 0.36)),
+            ));
+            parent.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(skin_mat.clone()),
+                Transform::from_xyz(0.0, 0.74, 0.0).with_scale(Vec3::splat(0.34)),
+            ));
+            for side in [-1.0_f32, 1.0] {
+                parent.spawn((
+                    Mesh3d(cube.clone()),
+                    MeshMaterial3d(player_mat.clone()),
+                    Transform::from_xyz(side * 0.40, 0.14, 0.0)
+                        .with_scale(Vec3::new(0.16, 0.62, 0.20)),
+                    Limb {
+                        phase_offset: if side < 0.0 {
+                            0.0
+                        } else {
+                            std::f32::consts::PI
+                        },
+                    },
+                ));
+            }
+            for side in [-1.0_f32, 1.0] {
+                parent.spawn((
+                    Mesh3d(cube.clone()),
+                    MeshMaterial3d(glass.clone()),
+                    Transform::from_xyz(side * 0.17, -0.52, 0.0)
+                        .with_scale(Vec3::new(0.22, 0.74, 0.24)),
+                    Limb {
+                        phase_offset: if side < 0.0 {
+                            std::f32::consts::PI
+                        } else {
+                            0.0
+                        },
+                    },
+                ));
+            }
+        });
+
+    commands
+        .spawn((
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(body.clone()),
+            Transform::from_translation(game.car).with_scale(Vec3::new(1.9, 0.9, 4.0)),
+            CarVisual,
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(glass.clone()),
+                Transform::from_xyz(0.0, 0.62, -0.15).with_scale(Vec3::new(1.62, 0.62, 1.9)),
+            ));
+            for side in [-1.0_f32, 1.0] {
+                for front in [-1.35_f32, 1.35] {
+                    parent.spawn((
+                        Mesh3d(wheel_mesh.clone()),
+                        MeshMaterial3d(rubber.clone()),
+                        Transform::from_xyz(side * 0.95, -0.30, front)
+                            .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
+                    ));
+                }
+                parent.spawn((
+                    Mesh3d(cube.clone()),
+                    MeshMaterial3d(headlight.clone()),
+                    Transform::from_xyz(side * 0.62, 0.10, -2.02)
+                        .with_scale(Vec3::new(0.34, 0.20, 0.10)),
+                ));
+                parent.spawn((
+                    Mesh3d(cube.clone()),
+                    MeshMaterial3d(headlight.clone()),
+                    Transform::from_xyz(side * 0.62, 0.10, 2.02)
+                        .with_scale(Vec3::new(0.34, 0.16, 0.10)),
+                ));
+            }
+        });
+
     commands.spawn((
         Mesh3d(cube.clone()),
         MeshMaterial3d(marker_mat),
@@ -468,6 +574,14 @@ fn facing_yaw(direction: Vec3) -> Option<f32> {
         Some(direction.x.atan2(direction.z))
     } else {
         None
+    }
+}
+
+fn limb_swing(phase: f32, offset: f32, amplitude: f32, moving: bool) -> f32 {
+    if moving {
+        (phase + offset).sin() * amplitude
+    } else {
+        0.0
     }
 }
 
@@ -795,9 +909,12 @@ fn controls(
         game.yaw += game.steering * speed_factor * 1.8 * dt;
         let direction = Vec3::new(game.yaw.sin(), 0.0, game.yaw.cos());
         let right = Vec3::new(game.yaw.cos(), 0.0, -game.yaw.sin());
-        game.lateral_speed =
-            (game.lateral_speed + game.steering * game.speed.abs() * 0.06 * dt).clamp(-2.0, 2.0);
-        game.lateral_speed *= (1.0 - 1.8 * dt).max(0.0);
+        let grip = 1.8 + 2.2 * (game.speed.abs() / 24.0).clamp(0.0, 1.0);
+        let slide_gain = 0.16 * (game.speed.abs() / 24.0).clamp(0.0, 1.0);
+        game.lateral_speed = (game.lateral_speed
+            + game.steering * game.speed.abs() * slide_gain * dt)
+            .clamp(-2.4, 2.4);
+        game.lateral_speed *= (1.0 - grip * dt).max(0.0);
         let intended = (Vec2::new(direction.x, direction.z) * game.speed
             + Vec2::new(right.x, right.z) * game.lateral_speed)
             * dt;
@@ -913,6 +1030,7 @@ fn update_world(
             Without<CarVisual>,
             Without<FollowCamera>,
             Without<MissionMarker>,
+            Without<Limb>,
         ),
     >,
     mut cars: Query<
@@ -922,6 +1040,7 @@ fn update_world(
             Without<PlayerVisual>,
             Without<FollowCamera>,
             Without<MissionMarker>,
+            Without<Limb>,
         ),
     >,
     mut cameras: Query<
@@ -942,17 +1061,32 @@ fn update_world(
             Without<FollowCamera>,
         ),
     >,
+    mut limbs: Query<
+        (&mut Transform, &Limb),
+        (
+            With<Limb>,
+            Without<PlayerVisual>,
+            Without<CarVisual>,
+            Without<FollowCamera>,
+            Without<MissionMarker>,
+        ),
+    >,
     mut commands: Commands,
 ) {
     let elapsed_secs = time.elapsed_secs();
     let dt = time.delta_secs().min(0.05);
+    let walking = game.player_moving && !game.driving;
+    let step_rate = if game.player_running { 12.0 } else { 7.0 };
+    let step_phase = elapsed_secs * step_rate;
+    let limb_amplitude = if game.player_running {
+        RUN_LIMB_SWING
+    } else {
+        WALK_LIMB_SWING
+    };
     for (mut transform, mut visibility, mut visual) in &mut players {
         transform.translation = game.player;
-        let moving = game.player_moving && !game.driving;
-        let running = moving && game.player_running;
-        let step_rate = if running { 12.0 } else { 7.0 };
-        let step_phase = elapsed_secs * step_rate;
-        if moving {
+        let running = walking && game.player_running;
+        if walking {
             let bob_amount = if running { 0.06 } else { 0.035 };
             transform.translation.y += (step_phase * 2.0).sin() * bob_amount;
         }
@@ -962,12 +1096,12 @@ fn update_world(
             - std::f32::consts::PI;
         visual.facing_yaw += turn_delta * (1.0 - (-14.0 * dt).exp());
 
-        let stride_sway = if moving {
-            step_phase.sin() * if running { 0.12 } else { 0.065 }
+        let stride_sway = if walking {
+            step_phase.sin() * if running { 0.10 } else { 0.055 }
         } else {
             0.0
         };
-        let run_lean = if running { -0.2 } else { 0.0 };
+        let run_lean = if running { -0.18 } else { 0.0 };
         transform.rotation = Quat::from_rotation_y(visual.facing_yaw)
             * Quat::from_rotation_x(run_lean)
             * Quat::from_rotation_z(stride_sway);
@@ -976,6 +1110,10 @@ fn update_world(
         } else {
             Visibility::Visible
         };
+    }
+    for (mut transform, limb) in &mut limbs {
+        let angle = limb_swing(step_phase, limb.phase_offset, limb_amplitude, walking);
+        transform.rotation = Quat::from_rotation_x(angle);
     }
     for mut transform in &mut cars {
         transform.translation = game.car;
@@ -1173,6 +1311,17 @@ mod tests {
         }
         assert!(peak - PLAYER_GROUND_Y > 1.5);
         assert_eq!(y, PLAYER_GROUND_Y);
+    }
+
+    #[test]
+    fn limbs_swing_in_opposite_phase_and_rest_when_standing() {
+        let phase = 0.8;
+        let left = limb_swing(phase, 0.0, WALK_LIMB_SWING, true);
+        let right = limb_swing(phase, std::f32::consts::PI, WALK_LIMB_SWING, true);
+        assert!((left + right).abs() < 1.0e-5);
+        assert!(left.abs() > 0.0);
+        assert_eq!(limb_swing(phase, 0.0, RUN_LIMB_SWING, false), 0.0);
+        assert!(limb_swing(phase, 0.0, RUN_LIMB_SWING, true).abs() <= RUN_LIMB_SWING);
     }
 
     #[test]
