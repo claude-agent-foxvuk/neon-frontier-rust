@@ -19,6 +19,16 @@ fn traffic_car_overlaps_body(position: Vec2, along_x: bool, direction: f32, obst
     )
 }
 
+fn police_vehicle_blocked(position: Vec2, yaw: f32, blockers: &[Body], player: &Body) -> bool {
+    let patrol = Body::vehicle(position, yaw);
+    bodies_overlap(&patrol, player) || blockers.iter().any(|body| bodies_overlap(&patrol, body))
+}
+
+fn officer_blocked(position: Vec2, blockers: &[Body], player: &Body) -> bool {
+    let officer = Body::person(position);
+    bodies_overlap(&officer, player) || blockers.iter().any(|body| bodies_overlap(&officer, body))
+}
+
 fn resolve_traffic_body_pairs(bodies: &mut [Body]) -> Vec<bool> {
     let original_centers: Vec<_> = bodies.iter().map(|body| body.center).collect();
     crate::physics::resolve_body_pairs(bodies);
@@ -110,11 +120,6 @@ pub(super) fn simulate_city_life(
             probe.vehicle_position.z,
         ))
     };
-    let player_radius = if probe.in_vehicle {
-        CAR_BODY_RADIUS
-    } else {
-        0.5
-    };
     let punching = probe.punch;
     let player_forward = if probe.forward.length_squared() > 1.0e-6 {
         probe.forward.normalize()
@@ -126,10 +131,6 @@ pub(super) fn simulate_city_life(
         .then(|| vehicle_body_from_forward(player, player_forward));
     let player_contact_body = player_vehicle_body.unwrap_or_else(|| Body::person(player_flat));
     let mut player_incident = false;
-    let mut car_positions: Vec<Vec3> = traffic
-        .iter()
-        .map(|(transform, _)| transform.translation)
-        .collect();
     let mut traffic_vehicle_bodies: Vec<Body> = traffic
         .iter()
         .map(|(transform, car)| traffic_vehicle_body(&transform, car.along_x, car.direction))
@@ -142,8 +143,15 @@ pub(super) fn simulate_city_life(
         .iter()
         .map(|(transform, _)| Vec2::new(transform.translation.x, transform.translation.z))
         .collect();
+    let mut patrol_vehicle_bodies: Vec<Body> = patrols
+        .iter()
+        .map(|(transform, _)| {
+            vehicle_body_from_forward(transform.translation, transform.rotation * Vec3::Z)
+        })
+        .collect();
     let mut knock_events: Vec<(usize, Vec3)> = Vec::with_capacity(4);
-    let mut car_bodies: Vec<(Vec2, f32)> = Vec::with_capacity(car_positions.len() + 2);
+    let mut car_bodies: Vec<(Vec2, f32)> =
+        Vec::with_capacity(traffic_vehicle_bodies.len() + patrol_vehicle_bodies.len());
 
     for (index, (mut transform, mut car)) in traffic.iter_mut().enumerate() {
         car.stop_timer = (car.stop_timer - dt).max(0.0);
@@ -172,9 +180,9 @@ pub(super) fn simulate_city_life(
                 || parked_vehicle.map_or(false, |vehicle| {
                     point.distance(vehicle) < CAR_BODY_RADIUS * 2.0
                 })
-                || police_positions
+                || patrol_vehicle_bodies
                     .iter()
-                    .any(|center| center.distance(point) < CAR_BODY_RADIUS * 2.0)
+                    .any(|body| bodies_overlap(&moving_body, body))
                 || traffic_vehicle_bodies.iter().enumerate().any(|(other, body)| {
                     other != index && bodies_overlap(&moving_body, body)
                 })
@@ -224,7 +232,6 @@ pub(super) fn simulate_city_life(
             }
             transform.translation.x = candidate.x;
             transform.translation.z = candidate.y;
-            car_positions[index] = transform.translation;
         }
         traffic_vehicle_bodies[index] =
             traffic_vehicle_body(&transform, car.along_x, car.direction);
@@ -271,7 +278,6 @@ pub(super) fn simulate_city_life(
         }
         traffic_vehicle_bodies[index] =
             traffic_vehicle_body(&transform, car.along_x, car.direction);
-        car_positions[index] = transform.translation;
         car_bodies[index] = (
             Vec2::new(transform.translation.x, transform.translation.z),
             CAR_BODY_RADIUS,
@@ -416,24 +422,17 @@ pub(super) fn simulate_city_life(
         if distance > stop_distance {
             let speed = tactics.map_or(2.4, |tactics| tactics.speed);
             let movement = delta.normalize() * (speed * dt).min(distance - stop_distance);
-            let mut blockers: Vec<Vec2> = car_positions
-                .iter()
-                .map(|car| Vec2::new(car.x, car.z))
-                .collect();
+            let vehicle_yaw = movement.y.atan2(movement.x);
+            let mut blockers = traffic_vehicle_bodies.clone();
             blockers.extend(
-                police_positions
+                patrol_vehicle_bodies
                     .iter()
                     .enumerate()
-                    .filter(|(other, _)| *other != index)
-                    .map(|(_, position)| *position),
+                    .filter_map(|(other, body)| (other != index).then_some(*body)),
             );
-            let vehicle_yaw = movement.y.atan2(movement.x);
             let next = crate::physics::move_with_slide(position, movement, |point| {
                 vehicle_city_collision(point, vehicle_yaw)
-                    || point.distance(player_flat) < CAR_BODY_RADIUS + player_radius
-                    || blockers
-                        .iter()
-                        .any(|center| center.distance(point) < CAR_BODY_RADIUS * 2.0)
+                    || police_vehicle_blocked(point, vehicle_yaw, &blockers, &player_contact_body)
             });
             let step = next - position;
             transform.translation.x = next.x;
@@ -441,6 +440,8 @@ pub(super) fn simulate_city_life(
             if step.length_squared() > 1.0e-5 {
                 transform.rotation = Quat::from_rotation_y(step.x.atan2(step.y));
             }
+            patrol_vehicle_bodies[index] =
+                vehicle_body_from_forward(transform.translation, transform.rotation * Vec3::Z);
         }
         car_bodies.push((
             Vec2::new(transform.translation.x, transform.translation.z),
@@ -452,10 +453,24 @@ pub(super) fn simulate_city_life(
         .iter()
         .map(|(transform, _)| Vec2::new(transform.translation.x, transform.translation.z))
         .collect();
+    let mut officer_bodies: Vec<Option<Body>> = officers
+        .iter()
+        .map(|(transform, officer, _)| {
+            officer.active.then(|| {
+                Body::person(Vec2::new(
+                    transform.translation.x,
+                    transform.translation.z,
+                ))
+            })
+        })
+        .collect();
     let mut shots_fired = Vec::new();
-    for (mut transform, mut officer, mut visibility) in &mut officers {
+    for (officer_index, (mut transform, mut officer, mut visibility)) in
+        (&mut officers).into_iter().enumerate()
+    {
         if wanted.level < 2 {
             officer.active = false;
+            officer_bodies[officer_index] = None;
             *visibility = Visibility::Hidden;
             continue;
         }
@@ -490,21 +505,19 @@ pub(super) fn simulate_city_life(
         };
         let mut next = position;
         if movement.length_squared() > 0.0 {
-            let mut blockers: Vec<Vec2> = car_positions
-                .iter()
-                .map(|car| Vec2::new(car.x, car.z))
-                .collect();
-            blockers.extend(updated_patrol_positions.iter().copied());
+            let mut blockers = traffic_vehicle_bodies.clone();
+            blockers.extend(patrol_vehicle_bodies.iter().copied());
+            blockers.extend(officer_bodies.iter().enumerate().filter_map(|(other, body)| {
+                (other != officer_index).then_some(*body).flatten()
+            }));
             next = crate::physics::move_with_slide(position, movement, |point| {
                 city_collision(point, OFFICER_BODY_RADIUS)
-                    || point.distance(player_flat) < OFFICER_BODY_RADIUS + player_radius
-                    || blockers
-                        .iter()
-                        .any(|center| center.distance(point) < CAR_BODY_RADIUS + OFFICER_BODY_RADIUS)
+                    || officer_blocked(point, &blockers, &player_contact_body)
             });
         }
         transform.translation.x = next.x;
         transform.translation.z = next.y;
+        officer_bodies[officer_index] = Some(Body::person(next));
         let facing = player_flat - next;
         if facing.length_squared() > 1.0e-5 {
             transform.rotation = Quat::from_rotation_y(facing.x.atan2(facing.y));
@@ -635,6 +648,32 @@ mod tests {
             1.0,
             &nearby_pedestrian,
         ));
+    }
+
+    #[test]
+    fn police_vehicle_and_officer_contacts_use_oriented_body_shapes() {
+        let player = Body::person(Vec2::new(20.0, 20.0));
+        let traffic_car = Body::vehicle(Vec2::new(0.0, 1.8), 0.0);
+        assert!(police_vehicle_blocked(
+            Vec2::ZERO,
+            0.0,
+            &[traffic_car],
+            &player,
+        ));
+        assert!(!police_vehicle_blocked(
+            Vec2::new(0.0, 10.0),
+            0.0,
+            &[traffic_car],
+            &player,
+        ));
+
+        let nearby_car = Body::vehicle(Vec2::new(8.0, 0.0), 0.0);
+        assert!(officer_blocked(
+            Vec2::new(8.2, 0.0),
+            &[nearby_car],
+            &player,
+        ));
+        assert!(!officer_blocked(Vec2::new(12.0, 0.0), &[nearby_car], &player));
     }
 
     #[test]
