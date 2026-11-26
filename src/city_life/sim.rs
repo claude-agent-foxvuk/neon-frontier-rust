@@ -31,16 +31,56 @@ fn officer_blocked(position: Vec2, blockers: &[Body], player: &Body) -> bool {
 
 fn resolve_traffic_body_pairs(bodies: &mut [Body]) -> Vec<bool> {
     let original_centers: Vec<_> = bodies.iter().map(|body| body.center).collect();
-    crate::physics::resolve_body_pairs(bodies);
+    for _ in 0..16 {
+        let mut moved = false;
+        for first_index in 0..bodies.len() {
+            for second_index in (first_index + 1)..bodies.len() {
+                let first = bodies[first_index];
+                let second = bodies[second_index];
+                let Some(translation) = crate::physics::body_separation_vector(&first, &second)
+                else {
+                    continue;
+                };
 
-    let mut moved = Vec::with_capacity(bodies.len());
-    for (body, original) in bodies.iter_mut().zip(original_centers) {
-        if vehicle_city_collision(body.center, body.yaw) {
-            body.center = original;
+                let mut first_split = first;
+                first_split.center += translation * 0.5;
+                let mut second_split = second;
+                second_split.center -= translation * 0.5;
+                if !vehicle_city_collision(first_split.center, first_split.yaw)
+                    && !vehicle_city_collision(second_split.center, second_split.yaw)
+                {
+                    bodies[first_index] = first_split;
+                    bodies[second_index] = second_split;
+                    moved = true;
+                    continue;
+                }
+
+                let mut first_only = first;
+                first_only.center += translation;
+                if !vehicle_city_collision(first_only.center, first_only.yaw) {
+                    bodies[first_index] = first_only;
+                    moved = true;
+                    continue;
+                }
+
+                let mut second_only = second;
+                second_only.center -= translation;
+                if !vehicle_city_collision(second_only.center, second_only.yaw) {
+                    bodies[second_index] = second_only;
+                    moved = true;
+                }
+            }
         }
-        moved.push(body.center.distance_squared(original) > 1.0e-6);
+        if !moved {
+            break;
+        }
     }
-    moved
+
+    bodies
+        .iter()
+        .zip(original_centers)
+        .map(|(body, original)| body.center.distance_squared(original) > 1.0e-6)
+        .collect()
 }
 
 pub(super) fn simulate_city_life(
@@ -685,5 +725,32 @@ mod tests {
         assert!(moved.iter().all(|did_move| *did_move));
         assert!(!bodies_overlap(&bodies[0], &bodies[1]));
         assert!(bodies.iter().all(|body| body.center.is_finite()));
+    }
+
+    #[test]
+    fn traffic_pair_separation_uses_the_free_side_when_building_blocks_a_split() {
+        let yaw = std::f32::consts::FRAC_PI_2;
+        let mut bodies = [
+            Body::vehicle(Vec2::new(7.5, 8.0), yaw),
+            Body::vehicle(Vec2::new(9.0, 8.0), yaw),
+        ];
+        assert!(bodies_overlap(&bodies[0], &bodies[1]));
+        assert!(bodies
+            .iter()
+            .all(|body| !vehicle_city_collision(body.center, body.yaw)));
+
+        let moved = resolve_traffic_body_pairs(&mut bodies);
+        assert!(moved[0]);
+        assert!(!moved[1]);
+        assert!(!bodies_overlap(&bodies[0], &bodies[1]));
+        assert!(bodies
+            .iter()
+            .all(|body| !vehicle_city_collision(body.center, body.yaw)));
+
+        let settled = bodies;
+        for _ in 0..5 {
+            assert!(resolve_traffic_body_pairs(&mut bodies).iter().all(|did_move| !did_move));
+            assert_eq!(bodies, settled);
+        }
     }
 }
