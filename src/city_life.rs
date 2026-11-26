@@ -19,3 +19,6 @@ mod traffic_regression_tests;
 
 #[cfg(test)]
 mod player_collision_tests;
+
+#[cfg(test)]
+mod crowd_collision_tests;
