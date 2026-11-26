@@ -233,7 +233,7 @@ pub(super) fn simulate_city_life(
         .iter()
         .map(|(transform, car)| traffic_vehicle_body(&transform, car.along_x, car.direction))
         .collect();
-    let citizen_positions: Vec<Vec3> = citizens
+    let traffic_citizen_positions: Vec<Vec3> = citizens
         .iter()
         .map(|(transform, _)| transform.translation)
         .collect();
@@ -329,7 +329,7 @@ pub(super) fn simulate_city_life(
         }
         traffic_vehicle_bodies[index] =
             traffic_vehicle_body(&transform, car.along_x, car.direction);
-        for (citizen_index, position) in citizen_positions.iter().enumerate() {
+        for (citizen_index, position) in traffic_citizen_positions.iter().enumerate() {
             let person_body = Body::person(Vec2::new(position.x, position.z));
             if bodies_overlap(&traffic_vehicle_bodies[index], &person_body) {
                 let flat = Vec2::new(
@@ -378,16 +378,28 @@ pub(super) fn simulate_city_life(
         );
     }
 
+    for (_, mut citizen) in &mut citizens {
+        if !citizen.dead && citizen.knocked <= 0.0 {
+            citizen.displacement = citizen.displacement.lerp(Vec3::ZERO, (dt * 3.0).min(1.0));
+            citizen.knock_velocity = Vec3::ZERO;
+        }
+    }
+    let citizen_positions: Vec<Vec3> = citizens
+        .iter()
+        .map(|(_, citizen)| {
+            let phase = now * citizen.speed + citizen.phase;
+            let offset = phase.sin() * citizen.range;
+            let along = if citizen.along_x { Vec3::X } else { Vec3::Z };
+            citizen.origin + along * offset + citizen.displacement
+        })
+        .collect();
+
     let mut citizen_index = 0;
     for (mut transform, mut citizen) in &mut citizens {
         let index = citizen_index;
         citizen_index += 1;
         if citizen.dead {
             continue;
-        }
-        if citizen.knocked <= 0.0 {
-            citizen.displacement = citizen.displacement.lerp(Vec3::ZERO, (dt * 3.0).min(1.0));
-            citizen.knock_velocity = Vec3::ZERO;
         }
         let phase = now * citizen.speed + citizen.phase;
         let offset = phase.sin() * citizen.range;
