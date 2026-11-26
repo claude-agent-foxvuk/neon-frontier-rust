@@ -493,3 +493,70 @@ fn live_foot_officer_stops_before_a_stationary_traffic_vehicle_obb() {
     assert!(transform.translation.x > 0.2);
     assert!(transform.translation.x < 6.0);
 }
+
+#[test]
+fn live_traffic_pair_separation_uses_free_side_next_to_building() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(120.0, 0.9, 120.0),
+        vehicle_position: Vec3::new(122.0, 0.65, 120.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: false,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    for x in [39.0, 40.5] {
+        world.spawn((
+            Transform::from_xyz(x, 0.48, 24.0),
+            TrafficCar {
+                speed: 0.0,
+                direction: 1.0,
+                along_x: false,
+                stop_timer: 120.0,
+                lane_offset: 0.0,
+                avoid_offset: 0.0,
+            },
+        ));
+    }
+
+    let starts = [Vec2::new(39.0, 24.0), Vec2::new(40.5, 24.0)];
+    let mut previous: Option<[Vec2; 2]> = None;
+    for _ in 0..6 {
+        world
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(16));
+        world
+            .run_system_once(simulate_city_life)
+            .expect("live city simulation separates traffic without pushing into a building");
+
+        let mut query = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
+        let bodies: Vec<_> = query
+            .iter(&world)
+            .map(|(transform, car)| traffic_vehicle_body(transform, car.along_x, car.direction))
+            .collect();
+        assert_eq!(bodies.len(), 2);
+        assert!(!bodies_overlap(&bodies[0], &bodies[1]));
+        assert!(bodies
+            .iter()
+            .all(|body| !vehicle_city_collision(body.center, body.yaw)));
+        let positions = [bodies[0].center, bodies[1].center];
+        if let Some(previous_positions) = previous {
+            assert_eq!(positions, previous_positions);
+        } else {
+            previous = Some(positions);
+            let moved_from_start = positions
+                .iter()
+                .filter(|position| starts.iter().all(|start| position.distance(*start) > 1.0e-4))
+                .count();
+            assert_eq!(moved_from_start, 1);
+        }
+    }
+}
