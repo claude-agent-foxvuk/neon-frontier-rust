@@ -1663,6 +1663,7 @@ mod tests {
         assert!(!collides_vehicle_with_bodies(
             stopped,
             0.0,
+            &[],
             &vehicle_blockers,
         ));
 
@@ -1747,7 +1748,7 @@ mod tests {
     }
 
     #[test]
-    fn steering_changes_smoothly_toward_input_and_self-centers() {
+    fn steering_changes_smoothly_toward_input_and_self_centers() {
         let first = vehicle_steering_step(0.0, 1.0, 0.05);
         let second = vehicle_steering_step(first, 1.0, 0.05);
         assert!(first > 0.0 && first < 1.0);
