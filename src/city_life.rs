@@ -22,3 +22,6 @@ mod player_collision_tests;
 
 #[cfg(test)]
 mod crowd_collision_tests;
+
+#[cfg(test)]
+mod police_progression_tests;
