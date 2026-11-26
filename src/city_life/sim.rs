@@ -409,9 +409,14 @@ pub(super) fn simulate_city_life(
                 continue;
             }
             let other_body = Body::person(Vec2::new(position.x, position.z));
-            if let Some(separation) =
+            if let Some(mut separation) =
                 crate::physics::body_separation_vector(&person_body, &other_body)
             {
+                if person_body.center.distance_squared(other_body.center) <= 1.0e-8
+                    && index > other
+                {
+                    separation = -separation;
+                }
                 citizen.displacement += Vec3::new(separation.x, 0.0, separation.y) * 0.5;
             }
         }
