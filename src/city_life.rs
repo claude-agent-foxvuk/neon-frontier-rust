@@ -2,6 +2,8 @@ mod helpers;
 use helpers::*;
 mod sim;
 use sim::simulate_city_life;
+mod traffic_avoidance;
+use traffic_avoidance::choose_real_width_traffic_offset as choose_safe_traffic_offset;
 
 include!("city_life/core.rs");
 
