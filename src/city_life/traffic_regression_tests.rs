@@ -98,18 +98,30 @@ fn live_city_simulation_separates_crossing_traffic_vehicles_by_obb() {
         },
     ));
 
-    world
-        .run_system_once(simulate_city_life)
-        .expect("live city simulation resolves crossing traffic OBB contacts");
+    let mut settled: Option<[Vec2; 2]> = None;
+    for _ in 0..40 {
+        world
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(16));
+        world
+            .run_system_once(simulate_city_life)
+            .expect("live city simulation resolves crossing traffic OBB contacts");
 
-    let mut query = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
-    let bodies: Vec<_> = query
-        .iter(&world)
-        .map(|(transform, car)| traffic_vehicle_body(transform, car.along_x, car.direction))
-        .collect();
-    assert_eq!(bodies.len(), 2);
-    assert!(bodies.iter().all(|body| body.center.is_finite()));
-    assert!(!bodies_overlap(&bodies[0], &bodies[1]));
+        let mut query = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
+        let bodies: Vec<_> = query
+            .iter(&world)
+            .map(|(transform, car)| traffic_vehicle_body(transform, car.along_x, car.direction))
+            .collect();
+        assert_eq!(bodies.len(), 2);
+        assert!(bodies.iter().all(|body| body.center.is_finite()));
+        assert!(!bodies_overlap(&bodies[0], &bodies[1]));
+        if let Some(previous) = settled {
+            assert!(bodies[0].center.distance(previous[0]) < 1.0e-4);
+            assert!(bodies[1].center.distance(previous[1]) < 1.0e-4);
+        } else {
+            settled = Some([bodies[0].center, bodies[1].center]);
+        }
+    }
     assert_eq!(world.resource::<WorldState>().snapshot.traffic.len(), 2);
 }
 
