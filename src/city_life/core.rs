@@ -144,6 +144,7 @@ impl Default for PlayerProbe {
 #[derive(Resource, Default)]
 pub struct TrafficBodies {
     pub cars: Vec<(Vec2, f32)>,
+    pub oriented: Vec<Body>,
 }
 
 #[derive(Resource, Default)]
