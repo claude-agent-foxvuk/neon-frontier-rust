@@ -285,6 +285,10 @@ pub(super) fn simulate_city_life(
         if citizen.dead {
             continue;
         }
+        if citizen.knocked <= 0.0 {
+            citizen.displacement = citizen.displacement.lerp(Vec3::ZERO, (dt * 3.0).min(1.0));
+            citizen.knock_velocity = Vec3::ZERO;
+        }
         let phase = now * citizen.speed + citizen.phase;
         let offset = phase.sin() * citizen.range;
         let direction = if phase.cos() >= 0.0 { 1.0 } else { -1.0 };
@@ -354,9 +358,6 @@ pub(super) fn simulate_city_life(
             citizen.displacement = displacement;
             citizen.knock_velocity = velocity;
             citizen.knocked = knocked;
-        } else {
-            citizen.displacement = citizen.displacement.lerp(Vec3::ZERO, (dt * 3.0).min(1.0));
-            citizen.knock_velocity = Vec3::ZERO;
         }
         let fallen = if citizen.dead {
             1.0
