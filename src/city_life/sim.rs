@@ -46,6 +46,7 @@ fn resolve_traffic_body_pairs(bodies: &mut [Body]) -> Vec<bool> {
 pub(super) fn simulate_city_life(
     time: Res<Time>,
     mut probe: ResMut<PlayerProbe>,
+    game: Option<Res<crate::Game>>,
     mut bodies: ResMut<TrafficBodies>,
     mut wanted: ResMut<WantedState>,
     mut world: ResMut<WorldState>,
@@ -115,10 +116,9 @@ pub(super) fn simulate_city_life(
     let parked_vehicle = if probe.in_vehicle {
         None
     } else {
-        Some(Vec2::new(
-            probe.vehicle_position.x,
-            probe.vehicle_position.z,
-        ))
+        let yaw = game.as_ref().map_or(0.0, |game| game.yaw);
+        let forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+        Some(vehicle_body_from_forward(probe.vehicle_position, forward))
     };
     let punching = probe.punch;
     let player_forward = if probe.forward.length_squared() > 1.0e-6 {
@@ -138,10 +138,6 @@ pub(super) fn simulate_city_life(
     let citizen_positions: Vec<Vec3> = citizens
         .iter()
         .map(|(transform, _)| transform.translation)
-        .collect();
-    let police_positions: Vec<Vec2> = patrols
-        .iter()
-        .map(|(transform, _)| Vec2::new(transform.translation.x, transform.translation.z))
         .collect();
     let mut patrol_vehicle_bodies: Vec<Body> = patrols
         .iter()
@@ -171,15 +167,15 @@ pub(super) fn simulate_city_life(
             parked_vehicle,
             probe.in_vehicle,
             &traffic_vehicle_bodies,
-            &police_positions,
+            &patrol_vehicle_bodies,
             index,
         );
         let blocks_movement = |point: Vec2| {
             let moving_body = traffic_vehicle_body_at(point, along_x, direction);
             bodies_overlap(&moving_body, &player_contact_body)
-                || parked_vehicle.map_or(false, |vehicle| {
-                    point.distance(vehicle) < CAR_BODY_RADIUS * 2.0
-                })
+                || parked_vehicle
+                    .as_ref()
+                    .map_or(false, |vehicle| bodies_overlap(&moving_body, vehicle))
                 || patrol_vehicle_bodies
                     .iter()
                     .any(|body| bodies_overlap(&moving_body, body))

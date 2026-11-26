@@ -114,6 +114,7 @@ pub(super) fn damage_player(probe: &mut PlayerProbe, damage: f32) {
     }
 }
 
+#[cfg(test)]
 pub(super) fn traffic_obstacle_ahead(
     baseline: Vec2,
     forward: Vec2,
@@ -144,10 +145,10 @@ pub(super) fn traffic_obstacle_ahead_with_bodies(
     baseline: Vec2,
     forward: Vec2,
     player: Vec2,
-    vehicle: Option<Vec2>,
+    vehicle: Option<crate::physics::Body>,
     in_vehicle: bool,
     traffic_bodies: &[crate::physics::Body],
-    police_positions: &[Vec2],
+    patrol_bodies: &[crate::physics::Body],
     car_index: usize,
 ) -> bool {
     traffic_obstacle_ahead_with_player_forward(
@@ -158,7 +159,7 @@ pub(super) fn traffic_obstacle_ahead_with_bodies(
         vehicle,
         in_vehicle,
         traffic_bodies,
-        police_positions,
+        patrol_bodies,
         car_index,
     )
 }
@@ -168,10 +169,10 @@ pub(super) fn traffic_obstacle_ahead_with_player_forward(
     forward: Vec2,
     player: Vec2,
     player_forward: Vec2,
-    vehicle: Option<Vec2>,
+    vehicle: Option<crate::physics::Body>,
     in_vehicle: bool,
     traffic_bodies: &[crate::physics::Body],
-    police_positions: &[Vec2],
+    patrol_bodies: &[crate::physics::Body],
     car_index: usize,
 ) -> bool {
     let detection_yaw = forward.y.atan2(forward.x);
@@ -193,14 +194,12 @@ pub(super) fn traffic_obstacle_ahead_with_player_forward(
     };
     crate::physics::bodies_overlap(&braking_probe, &player_body)
         || (!in_vehicle
-            && vehicle.map_or(false, |position| {
-                let parked_vehicle = crate::physics::Body::vehicle(position, detection_yaw);
-                crate::physics::bodies_overlap(&braking_probe, &parked_vehicle)
-            }))
-        || police_positions.iter().any(|position| {
-            let patrol = crate::physics::Body::vehicle(*position, detection_yaw);
-            crate::physics::bodies_overlap(&braking_probe, &patrol)
-        })
+            && vehicle
+                .as_ref()
+                .map_or(false, |parked| crate::physics::bodies_overlap(&braking_probe, parked)))
+        || patrol_bodies
+            .iter()
+            .any(|patrol| crate::physics::bodies_overlap(&braking_probe, patrol))
         || traffic_bodies.iter().enumerate().any(|(other, body)| {
             other != car_index && crate::physics::bodies_overlap(&braking_probe, body)
         })
@@ -252,8 +251,8 @@ mod oriented_traffic_tests {
     fn has_obstacle_at(
         position: Vec2,
         in_vehicle: bool,
-        parked_vehicle: Option<Vec2>,
-        police: &[Vec2],
+        parked_vehicle: Option<crate::physics::Body>,
+        police: &[crate::physics::Body],
     ) -> bool {
         traffic_obstacle_ahead_with_bodies(
             Vec2::ZERO,
@@ -318,12 +317,39 @@ mod oriented_traffic_tests {
 
         assert!(!has_obstacle_at(adjacent_lane, false, None, &[]));
         assert!(has_obstacle_at(same_lane, false, None, &[]));
-        assert!(!has_obstacle_at(far_away, false, Some(adjacent_lane), &[]));
-        assert!(has_obstacle_at(far_away, false, Some(same_lane), &[]));
-        assert!(!has_obstacle_at(far_away, false, None, &[adjacent_lane]));
-        assert!(has_obstacle_at(far_away, false, None, &[same_lane]));
+        assert!(!has_obstacle_at(
+            far_away,
+            false,
+            Some(crate::physics::Body::vehicle(adjacent_lane, 0.0)),
+            &[],
+        ));
+        assert!(has_obstacle_at(
+            far_away,
+            false,
+            Some(crate::physics::Body::vehicle(same_lane, 0.0)),
+            &[],
+        ));
+        assert!(!has_obstacle_at(
+            far_away,
+            false,
+            None,
+            &[crate::physics::Body::vehicle(adjacent_lane, 0.0)],
+        ));
+        assert!(has_obstacle_at(
+            far_away,
+            false,
+            None,
+            &[crate::physics::Body::vehicle(same_lane, 0.0)],
+        ));
         assert!(!has_obstacle_at(adjacent_lane, true, None, &[]));
         assert!(has_obstacle_at(same_lane, true, None, &[]));
+
+        let across_lane_car = crate::physics::Body::vehicle(
+            adjacent_lane,
+            std::f32::consts::FRAC_PI_2,
+        );
+        assert!(has_obstacle_at(far_away, false, Some(across_lane_car), &[]));
+        assert!(has_obstacle_at(far_away, false, None, &[across_lane_car]));
     }
 
     #[test]
