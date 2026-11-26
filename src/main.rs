@@ -26,7 +26,6 @@ const PLAYER_RUN_SPEED: f32 = 9.2;
 const PUNCH_COOLDOWN: f32 = 0.45;
 const MISSION_MARKER_PULSE: f32 = 0.12;
 const PLAYER_BODY_RADIUS: f32 = 0.45;
-const PLAYER_CAR_RADIUS: f32 = 2.2;
 const WALK_LIMB_SWING: f32 = 0.55;
 const RUN_LIMB_SWING: f32 = 0.95;
 const DAY_LENGTH_SECONDS: f32 = 240.0;
@@ -622,15 +621,26 @@ fn setup(
     ));
 }
 
+fn building_body(center: Vec2) -> physics::Body {
+    physics::Body::new(center, BUILDING_HALF, BUILDING_HALF, 0.0)
+}
+
+fn walking_player_body(position: Vec2, clearance: f32) -> physics::Body {
+    physics::Body::new(position, clearance, clearance, 0.0)
+}
+
 fn collides(pos: Vec2, radius: f32, buildings: &[Vec2]) -> bool {
-    if pos.x.abs() + radius > WORLD_EDGE || pos.y.abs() + radius > WORLD_EDGE {
+    if !pos.is_finite()
+        || !radius.is_finite()
+        || pos.x.abs() + radius > WORLD_EDGE
+        || pos.y.abs() + radius > WORLD_EDGE
+    {
         return true;
     }
-    buildings.iter().any(|center| {
-        let dx = ((pos.x - center.x).abs() - BUILDING_HALF).max(0.0);
-        let dz = ((pos.y - center.y).abs() - BUILDING_HALF).max(0.0);
-        dx * dx + dz * dz < radius * radius
-    })
+    let player = walking_player_body(pos, radius);
+    buildings
+        .iter()
+        .any(|center| physics::bodies_overlap(&player, &building_body(*center)))
 }
 
 fn player_vehicle_body(position: Vec2, yaw: f32) -> physics::Body {
@@ -650,20 +660,50 @@ fn collides_vehicle(pos: Vec2, yaw: f32, buildings: &[Vec2]) -> bool {
     if pos.x.abs() + extent_x > WORLD_EDGE || pos.y.abs() + extent_z > WORLD_EDGE {
         return true;
     }
-    buildings.iter().any(|center| {
-        let building = physics::Body::new(*center, BUILDING_HALF, BUILDING_HALF, 0.0);
-        physics::bodies_overlap(&body, &building)
-    })
+    buildings
+        .iter()
+        .any(|center| physics::bodies_overlap(&body, &building_body(*center)))
 }
 
-fn blocked_by_traffic(cars: &[(Vec2, f32)], next: Vec3, clearance: f32) -> bool {
-    let flat = Vec2::new(next.x, next.z);
-    cars.iter()
-        .any(|(center, radius)| center.distance(flat) < *radius + clearance)
+fn blocked_by_traffic(bodies: &[physics::Body], next: Vec3, clearance: f32) -> bool {
+    let player = walking_player_body(Vec2::new(next.x, next.z), clearance);
+    bodies
+        .iter()
+        .any(|body| physics::bodies_overlap(&player, body))
 }
 
-fn blocked_by_parked_car(next: Vec3, car: Vec3, clearance: f32) -> bool {
-    Vec2::new(next.x - car.x, next.z - car.z).length() < PLAYER_CAR_RADIUS + clearance
+fn blocked_by_parked_car(next: Vec3, car: Vec3, yaw: f32, clearance: f32) -> bool {
+    let player = walking_player_body(Vec2::new(next.x, next.z), clearance);
+    let parked = player_vehicle_body(Vec2::new(car.x, car.z), yaw);
+    physics::bodies_overlap(&player, &parked)
+}
+
+fn vehicle_overlaps_any(position: Vec2, yaw: f32, obstacles: &[physics::Body]) -> bool {
+    let vehicle = player_vehicle_body(position, yaw);
+    obstacles
+        .iter()
+        .any(|obstacle| physics::bodies_overlap(&vehicle, obstacle))
+}
+
+fn collides_walking_with_bodies(
+    position: Vec2,
+    buildings: &[Vec2],
+    obstacles: &[physics::Body],
+    clearance: f32,
+) -> bool {
+    collides(position, clearance, buildings)
+        || obstacles.iter().any(|obstacle| {
+            physics::bodies_overlap(&walking_player_body(position, clearance), obstacle)
+        })
+}
+
+fn collides_vehicle_with_bodies(
+    position: Vec2,
+    yaw: f32,
+    buildings: &[Vec2],
+    obstacles: &[physics::Body],
+) -> bool {
+    collides_vehicle(position, yaw, buildings) || vehicle_overlaps_any(position, yaw, obstacles)
 }
 
 fn walk_direction(horizontal: f32, forward: f32, yaw: f32) -> Vec3 {
@@ -1000,8 +1040,13 @@ fn controls(
                         Vec2::new(exit.x, exit.z),
                         PLAYER_BODY_RADIUS,
                         &game.buildings,
-                    ) && !blocked_by_traffic(&traffic.cars, *exit, PLAYER_BODY_RADIUS)
-                        && !blocked_by_parked_car(*exit, game.car, PLAYER_BODY_RADIUS)
+                    ) && !blocked_by_traffic(&traffic.oriented, *exit, PLAYER_BODY_RADIUS)
+                        && !blocked_by_parked_car(
+                            *exit,
+                            game.car,
+                            game.yaw,
+                            PLAYER_BODY_RADIUS,
+                        )
                 }) {
                     game.player = Vec3::new(exit.x, PLAYER_GROUND_Y, exit.z);
                     game.camera_yaw = game.yaw + std::f32::consts::PI + game.camera_orbit;
@@ -1046,13 +1091,14 @@ fn controls(
             + Vec2::new(right.x, right.z) * game.lateral_speed)
             * dt;
         let start = Vec2::new(game.car.x, game.car.z);
-        let blockers = traffic.cars.clone();
-        let separated = physics::separate_from_circles(start, PLAYER_CAR_RADIUS, &blockers);
+        let blockers = traffic.oriented.clone();
+        let separated = physics::resolve_body_overlaps(
+            player_vehicle_body(start, game.yaw),
+            &blockers,
+        )
+        .center;
         let moved = physics::move_with_slide(separated, intended, |point| {
-            collides_vehicle(point, game.yaw, &game.buildings)
-                || blockers
-                    .iter()
-                    .any(|(center, radius)| center.distance(point) < radius + PLAYER_CAR_RADIUS)
+            collides_vehicle_with_bodies(point, game.yaw, &game.buildings, &blockers)
         });
         if moved.distance(start) + 0.02 < intended.length() {
             game.speed *= 0.28;
@@ -1072,16 +1118,25 @@ fn controls(
         } else {
             PLAYER_WALK_SPEED
         };
-        let mut blockers = traffic.cars.clone();
-        blockers.push((Vec2::new(game.car.x, game.car.z), PLAYER_CAR_RADIUS));
+        let mut blockers = traffic.oriented.clone();
+        blockers.push(player_vehicle_body(
+            Vec2::new(game.car.x, game.car.z),
+            game.yaw,
+        ));
         let start = Vec2::new(game.player.x, game.player.z);
-        let separated = physics::separate_from_circles(start, PLAYER_BODY_RADIUS, &blockers);
+        let separated = physics::resolve_body_overlaps(
+            walking_player_body(start, PLAYER_BODY_RADIUS),
+            &blockers,
+        )
+        .center;
         let delta = Vec2::new(direction.x, direction.z) * run * dt;
         let moved = physics::move_with_slide(separated, delta, |point| {
-            collides(point, PLAYER_BODY_RADIUS, &game.buildings)
-                || blockers
-                    .iter()
-                    .any(|(center, radius)| center.distance(point) < radius + PLAYER_BODY_RADIUS)
+            collides_walking_with_bodies(
+                point,
+                &game.buildings,
+                &blockers,
+                PLAYER_BODY_RADIUS,
+            )
         });
         game.player.x = moved.x;
         game.player.z = moved.y;
@@ -1414,7 +1469,7 @@ mod tests {
         let buildings = [Vec2::new(24.0, 24.0)];
         let near_wall = Vec2::new(39.5, 24.0);
 
-        assert!(collides(near_wall, PLAYER_CAR_RADIUS, &buildings));
+        assert!(collides(near_wall, 2.2, &buildings));
         assert!(!collides_vehicle(near_wall, 0.0, &buildings));
         assert!(collides_vehicle(
             near_wall,
@@ -1451,12 +1506,14 @@ mod tests {
         assert!(blocked_by_parked_car(
             Vec3::new(0.0, 0.9, 8.0),
             car,
-            PLAYER_BODY_RADIUS
+            0.0,
+            PLAYER_BODY_RADIUS,
         ));
         assert!(!blocked_by_parked_car(
-            Vec3::new(0.0, 0.9, 10.0),
+            Vec3::new(2.0, 0.9, 6.0),
             car,
-            PLAYER_BODY_RADIUS
+            0.0,
+            PLAYER_BODY_RADIUS,
         ));
     }
 
@@ -1521,10 +1578,99 @@ mod tests {
     }
 
     #[test]
-    fn traffic_cars_block_the_player() {
-        let cars = vec![(Vec2::new(4.0, 0.0), 2.2)];
-        assert!(blocked_by_traffic(&cars, Vec3::new(5.0, 0.0, 0.0), 0.45));
-        assert!(!blocked_by_traffic(&cars, Vec3::new(12.0, 0.0, 0.0), 0.45));
+    fn oriented_traffic_and_pedestrians_block_a_walking_player() {
+        let car = physics::Body::vehicle(Vec2::new(4.0, 0.0), std::f32::consts::FRAC_PI_2);
+        let pedestrian = physics::Body::person(Vec2::new(12.0, 0.0));
+        let bodies = [car, pedestrian];
+        assert!(blocked_by_traffic(&bodies, Vec3::new(5.0, 0.0, 0.0), 0.45));
+        assert!(blocked_by_traffic(&bodies, Vec3::new(12.0, 0.0, 0.0), 0.45));
+        assert!(!blocked_by_traffic(&bodies, Vec3::new(12.0, 0.0, 2.0), 0.45));
+    }
+
+    #[test]
+    fn player_vehicle_and_walking_contacts_use_obb_not_circle_radius() {
+        let parallel_car = physics::Body::vehicle(
+            Vec2::new(2.0, 0.0),
+            std::f32::consts::FRAC_PI_2,
+        );
+        assert!(!vehicle_overlaps_any(Vec2::ZERO, 0.0, &[parallel_car]));
+        assert!(vehicle_overlaps_any(
+            Vec2::ZERO,
+            0.0,
+            &[physics::Body::vehicle(Vec2::new(0.0, 1.8), 0.0)],
+        ));
+        assert!(collides_vehicle_with_bodies(
+            Vec2::ZERO,
+            0.0,
+            &[],
+            &[physics::Body::person(Vec2::new(0.0, 1.5))],
+        ));
+        assert!(!collides_vehicle_with_bodies(
+            Vec2::ZERO,
+            0.0,
+            &[],
+            &[physics::Body::person(Vec2::new(1.5, 0.0))],
+        ));
+
+        let nearby_person = physics::Body::person(Vec2::new(0.75, 0.0));
+        assert!(collides_walking_with_bodies(
+            Vec2::ZERO,
+            &[],
+            &[nearby_person],
+            PLAYER_BODY_RADIUS,
+        ));
+        assert!(!collides_walking_with_bodies(
+            Vec2::new(0.9, 0.0),
+            &[],
+            &[nearby_person],
+            PLAYER_BODY_RADIUS,
+        ));
+    }
+
+    #[test]
+    fn driving_player_slides_before_vehicle_and_pedestrian_obbs() {
+        let traffic_car = physics::Body::vehicle(Vec2::ZERO, 0.0);
+        let start = Vec2::new(-6.0, 0.0);
+        let stopped = physics::move_with_slide(start, Vec2::new(12.0, 0.0), |point| {
+            collides_vehicle_with_bodies(point, 0.0, &[], &[traffic_car])
+        });
+        assert!(stopped.x < -3.0);
+        assert!(!collides_vehicle_with_bodies(
+            stopped,
+            0.0,
+            &[],
+            &[traffic_car],
+        ));
+
+        let pedestrian = physics::Body::person(Vec2::ZERO);
+        let start = Vec2::new(-4.0, 0.0);
+        let stopped = physics::move_with_slide(start, Vec2::new(8.0, 0.0), |point| {
+            collides_vehicle_with_bodies(point, 0.0, &[], &[pedestrian])
+        });
+        assert!(stopped.x < -1.2);
+        assert!(!collides_vehicle_with_bodies(
+            stopped,
+            0.0,
+            &[],
+            &[pedestrian],
+        ));
+    }
+
+    #[test]
+    fn walking_player_slides_along_a_rotated_vehicle_obb() {
+        let vehicle = physics::Body::vehicle(Vec2::ZERO, std::f32::consts::FRAC_PI_2);
+        let start = Vec2::new(-3.0, 0.0);
+        let moved = physics::move_with_slide(start, Vec2::new(6.0, 0.0), |point| {
+            collides_walking_with_bodies(point, &[], &[vehicle], PLAYER_BODY_RADIUS)
+        });
+        assert!(moved.x < -1.3);
+        assert!(moved.y.abs() < 1.0e-5);
+        assert!(!collides_walking_with_bodies(
+            moved,
+            &[],
+            &[vehicle],
+            PLAYER_BODY_RADIUS,
+        ));
     }
 
     #[test]
