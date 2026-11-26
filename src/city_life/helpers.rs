@@ -40,18 +40,23 @@ pub(super) fn damage_citizen(citizen: &mut Citizen, damage: f32) -> bool {
 }
 
 pub(super) fn city_collision(position: Vec2, radius: f32) -> bool {
-    if position.x.abs() + radius > CITY_LIMIT || position.y.abs() + radius > CITY_LIMIT {
+    if !position.is_finite()
+        || !radius.is_finite()
+        || radius < 0.0
+        || position.x.abs() + radius > CITY_LIMIT
+        || position.y.abs() + radius > CITY_LIMIT
+    {
         return true;
     }
+    let body = Body::new(position, radius, radius, 0.0);
     (-3_i32..=2).any(|grid_x| {
         (-3_i32..=2).any(|grid_z| {
             let center = Vec2::new(
                 grid_x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
                 grid_z as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
             );
-            let dx = ((position.x - center.x).abs() - BUILDING_HALF).max(0.0);
-            let dz = ((position.y - center.y).abs() - BUILDING_HALF).max(0.0);
-            dx * dx + dz * dz < radius * radius
+            let building = Body::new(center, BUILDING_HALF, BUILDING_HALF, 0.0);
+            crate::physics::bodies_overlap(&body, &building)
         })
     })
 }
@@ -361,6 +366,16 @@ mod oriented_traffic_tests {
             near_building_wall,
             std::f32::consts::FRAC_PI_2,
         ));
+    }
+
+    #[test]
+    fn pedestrian_city_collision_uses_obb_footprint_at_building_corners() {
+        let corner_contact = Vec2::new(38.3, 38.3);
+        assert!(city_collision(corner_contact, 0.4));
+        assert!(!city_collision(Vec2::ZERO, 0.4));
+        assert!(city_collision(Vec2::new(f32::NAN, 0.0), 0.4));
+        assert!(city_collision(Vec2::ZERO, f32::NAN));
+        assert!(city_collision(Vec2::ZERO, -0.4));
     }
 
     #[test]
