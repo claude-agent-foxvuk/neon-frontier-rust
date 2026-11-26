@@ -85,7 +85,14 @@ fn officer_blocked(position: Vec2, blockers: &[Body], player: &Body) -> bool {
     bodies_overlap(&officer, player) || blockers.iter().any(|body| bodies_overlap(&officer, body))
 }
 
-fn resolve_traffic_body_pairs(bodies: &mut [Body]) -> Vec<bool> {
+fn traffic_pair_candidate_clear(body: &Body, static_obstacles: &[Body]) -> bool {
+    !vehicle_city_collision(body.center, body.yaw)
+        && static_obstacles
+            .iter()
+            .all(|obstacle| !bodies_overlap(body, obstacle))
+}
+
+fn resolve_traffic_body_pairs(bodies: &mut [Body], static_obstacles: &[Body]) -> Vec<bool> {
     let original_centers: Vec<_> = bodies.iter().map(|body| body.center).collect();
     for _ in 0..16 {
         let mut moved = false;
@@ -102,8 +109,8 @@ fn resolve_traffic_body_pairs(bodies: &mut [Body]) -> Vec<bool> {
                 first_split.center += translation * 0.5;
                 let mut second_split = second;
                 second_split.center -= translation * 0.5;
-                if !vehicle_city_collision(first_split.center, first_split.yaw)
-                    && !vehicle_city_collision(second_split.center, second_split.yaw)
+                if traffic_pair_candidate_clear(&first_split, static_obstacles)
+                    && traffic_pair_candidate_clear(&second_split, static_obstacles)
                 {
                     bodies[first_index] = first_split;
                     bodies[second_index] = second_split;
@@ -113,7 +120,7 @@ fn resolve_traffic_body_pairs(bodies: &mut [Body]) -> Vec<bool> {
 
                 let mut first_only = first;
                 first_only.center += translation;
-                if !vehicle_city_collision(first_only.center, first_only.yaw) {
+                if traffic_pair_candidate_clear(&first_only, static_obstacles) {
                     bodies[first_index] = first_only;
                     moved = true;
                     continue;
@@ -121,7 +128,7 @@ fn resolve_traffic_body_pairs(bodies: &mut [Body]) -> Vec<bool> {
 
                 let mut second_only = second;
                 second_only.center -= translation;
-                if !vehicle_city_collision(second_only.center, second_only.yaw) {
+                if traffic_pair_candidate_clear(&second_only, static_obstacles) {
                     bodies[second_index] = second_only;
                     moved = true;
                 }
@@ -357,7 +364,15 @@ pub(super) fn simulate_city_life(
         .iter_mut()
         .map(|(transform, car)| traffic_vehicle_body(&transform, car.along_x, car.direction))
         .collect();
-    let pair_moved = resolve_traffic_body_pairs(&mut pair_bodies);
+    let mut pair_obstacles = Vec::with_capacity(
+        1 + usize::from(parked_vehicle.is_some()) + patrol_vehicle_bodies.len(),
+    );
+    pair_obstacles.push(player_contact_body);
+    if let Some(parked) = parked_vehicle {
+        pair_obstacles.push(parked);
+    }
+    pair_obstacles.extend(patrol_vehicle_bodies.iter().copied());
+    let pair_moved = resolve_traffic_body_pairs(&mut pair_bodies, &pair_obstacles);
     for (index, ((mut transform, mut car), body)) in
         traffic.iter_mut().zip(pair_bodies.into_iter()).enumerate()
     {
@@ -892,11 +907,39 @@ mod tests {
         ];
         assert!(bodies_overlap(&bodies[0], &bodies[1]));
 
-        let moved = resolve_traffic_body_pairs(&mut bodies);
+        let moved = resolve_traffic_body_pairs(&mut bodies, &[]);
 
         assert!(moved.iter().all(|did_move| *did_move));
         assert!(!bodies_overlap(&bodies[0], &bodies[1]));
         assert!(bodies.iter().all(|body| body.center.is_finite()));
+    }
+
+    #[test]
+    fn traffic_pair_separation_does_not_push_a_car_into_a_pedestrian() {
+        let mut bodies = [
+            Body::vehicle(Vec2::ZERO, 0.0),
+            Body::vehicle(Vec2::new(0.0, 1.5), 0.0),
+        ];
+        let pedestrian = Body::person(Vec2::new(0.0, -1.45));
+        assert!(bodies_overlap(&bodies[0], &bodies[1]));
+        assert!(!bodies_overlap(&bodies[0], &pedestrian));
+        assert!(!bodies_overlap(&bodies[1], &pedestrian));
+
+        let moved = resolve_traffic_body_pairs(&mut bodies, &[pedestrian]);
+
+        assert!(!moved[0]);
+        assert!(moved[1]);
+        assert!(!bodies_overlap(&bodies[0], &bodies[1]));
+        assert!(bodies.iter().all(|body| !bodies_overlap(body, &pedestrian)));
+        assert!(bodies.iter().all(|body| body.center.is_finite()));
+
+        let settled = bodies;
+        for _ in 0..5 {
+            assert!(resolve_traffic_body_pairs(&mut bodies, &[pedestrian])
+                .iter()
+                .all(|did_move| !did_move));
+            assert_eq!(bodies, settled);
+        }
     }
 
     #[test]
@@ -911,7 +954,7 @@ mod tests {
             .iter()
             .all(|body| !vehicle_city_collision(body.center, body.yaw)));
 
-        let moved = resolve_traffic_body_pairs(&mut bodies);
+        let moved = resolve_traffic_body_pairs(&mut bodies, &[]);
         assert!(moved[0]);
         assert!(!moved[1]);
         assert!(!bodies_overlap(&bodies[0], &bodies[1]));
@@ -921,7 +964,9 @@ mod tests {
 
         let settled = bodies;
         for _ in 0..5 {
-            assert!(resolve_traffic_body_pairs(&mut bodies).iter().all(|did_move| !did_move));
+            assert!(resolve_traffic_body_pairs(&mut bodies, &[])
+                .iter()
+                .all(|did_move| !did_move));
             assert_eq!(bodies, settled);
         }
     }
