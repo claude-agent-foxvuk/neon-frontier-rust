@@ -633,6 +633,29 @@ fn collides(pos: Vec2, radius: f32, buildings: &[Vec2]) -> bool {
     })
 }
 
+fn player_vehicle_body(position: Vec2, yaw: f32) -> physics::Body {
+    physics::Body::vehicle(position, yaw + std::f32::consts::FRAC_PI_2)
+}
+
+fn collides_vehicle(pos: Vec2, yaw: f32, buildings: &[Vec2]) -> bool {
+    if !pos.is_finite() || !yaw.is_finite() {
+        return true;
+    }
+    let body = player_vehicle_body(pos, yaw);
+    let (sin_yaw, cos_yaw) = body.yaw.sin_cos();
+    let extent_x = physics::VEHICLE_HALF_LENGTH * cos_yaw.abs()
+        + physics::VEHICLE_HALF_WIDTH * sin_yaw.abs();
+    let extent_z = physics::VEHICLE_HALF_LENGTH * sin_yaw.abs()
+        + physics::VEHICLE_HALF_WIDTH * cos_yaw.abs();
+    if pos.x.abs() + extent_x > WORLD_EDGE || pos.y.abs() + extent_z > WORLD_EDGE {
+        return true;
+    }
+    buildings.iter().any(|center| {
+        let building = physics::Body::new(*center, BUILDING_HALF, BUILDING_HALF, 0.0);
+        physics::bodies_overlap(&body, &building)
+    })
+}
+
 fn blocked_by_traffic(cars: &[(Vec2, f32)], next: Vec3, clearance: f32) -> bool {
     let flat = Vec2::new(next.x, next.z);
     cars.iter()
@@ -789,9 +812,9 @@ fn load_game(
             PLAYER_BODY_RADIUS,
             &game.buildings,
         )
-        || collides(
+        || collides_vehicle(
             Vec2::new(snapshot.car.x, snapshot.car.z),
-            PLAYER_CAR_RADIUS,
+            snapshot.yaw,
             &game.buildings,
         )
     {
@@ -1026,7 +1049,7 @@ fn controls(
         let blockers = traffic.cars.clone();
         let separated = physics::separate_from_circles(start, PLAYER_CAR_RADIUS, &blockers);
         let moved = physics::move_with_slide(separated, intended, |point| {
-            collides(point, PLAYER_CAR_RADIUS, &game.buildings)
+            collides_vehicle(point, game.yaw, &game.buildings)
                 || blockers
                     .iter()
                     .any(|(center, radius)| center.distance(point) < radius + PLAYER_CAR_RADIUS)
@@ -1387,6 +1410,32 @@ mod tests {
     }
 
     #[test]
+    fn player_vehicle_building_contact_uses_its_oriented_obb() {
+        let buildings = [Vec2::new(24.0, 24.0)];
+        let near_wall = Vec2::new(39.5, 24.0);
+
+        assert!(collides(near_wall, PLAYER_CAR_RADIUS, &buildings));
+        assert!(!collides_vehicle(near_wall, 0.0, &buildings));
+        assert!(collides_vehicle(
+            near_wall,
+            std::f32::consts::FRAC_PI_2,
+            &buildings,
+        ));
+
+        let start = Vec2::new(42.0, 24.0);
+        let stopped = physics::move_with_slide(start, Vec2::new(-5.0, 0.0), |position| {
+            collides_vehicle(position, std::f32::consts::FRAC_PI_2, &buildings)
+        });
+        assert!(stopped.x < start.x);
+        assert!(stopped.x > 40.0);
+        assert!(!collides_vehicle(
+            stopped,
+            std::f32::consts::FRAC_PI_2,
+            &buildings,
+        ));
+    }
+
+    #[test]
     fn walking_uses_camera_relative_directions() {
         let forward = walk_direction(0.0, 1.0, 0.0);
         let right = walk_direction(1.0, 0.0, 0.0);
@@ -1419,10 +1468,10 @@ mod tests {
             PLAYER_BODY_RADIUS,
             &[]
         ));
-        assert!(!collides(
+        assert!(!collides_vehicle(
             Vec2::new(SPAWN_CAR.x, SPAWN_CAR.z),
-            PLAYER_CAR_RADIUS,
-            &[]
+            0.0,
+            &[],
         ));
     }
 
