@@ -281,6 +281,70 @@ fn live_walking_player_and_pedestrian_separate_without_wanted_level() {
 }
 
 #[test]
+fn live_coincident_pedestrians_separate_symmetrically_and_remain_stable() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(120.0, 0.9, 120.0),
+        vehicle_position: Vec3::new(122.0, 0.65, 120.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: false,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    for _ in 0..2 {
+        let origin = Vec3::new(0.0, 0.82, 0.0);
+        world.spawn((
+            Transform::from_translation(origin),
+            Citizen {
+                origin,
+                phase: 0.0,
+                speed: 0.0,
+                range: 0.0,
+                along_x: true,
+                displacement: Vec3::ZERO,
+                knock_velocity: Vec3::ZERO,
+                knocked: 0.0,
+                health: CITIZEN_HEALTH,
+                dead: false,
+            },
+        ));
+    }
+
+    for tick in 0..2 {
+        if tick > 0 {
+            world
+                .resource_mut::<Time<()>>()
+                .advance_by(Duration::from_millis(16));
+        }
+        world
+            .run_system_once(simulate_city_life)
+            .expect("live city simulation separates coincident pedestrians stably");
+
+        let mut query = world.query_filtered::<(&Transform, &Citizen), With<Citizen>>();
+        let bodies: Vec<_> = query
+            .iter(&world)
+            .map(|(transform, citizen)| {
+                assert!(!citizen.dead);
+                Body::person(Vec2::new(transform.translation.x, transform.translation.z))
+            })
+            .collect();
+        assert_eq!(bodies.len(), 2);
+        assert!(!bodies_overlap(&bodies[0], &bodies[1]));
+        assert!((bodies[0].center.x + bodies[1].center.x).abs() < 1.0e-4);
+        assert!(bodies[0].center.x * bodies[1].center.x < 0.0);
+    }
+    assert_eq!(world.resource::<WorldState>().snapshot.wanted_level, 0);
+}
+
+#[test]
 fn live_traffic_brakes_before_the_player_vehicle_obb() {
     let mut world = World::new();
     let mut time = Time::<()>::default();
