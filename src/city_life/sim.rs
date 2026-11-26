@@ -534,6 +534,26 @@ pub(super) fn simulate_city_life(
         };
     }
     bodies.cars = car_bodies;
+    bodies.oriented = traffic_vehicle_bodies;
+    bodies.oriented.extend(patrols.iter().map(|(transform, _)| {
+        vehicle_body_from_forward(transform.translation, transform.rotation * Vec3::Z)
+    }));
+    bodies.oriented.extend(citizens.iter().filter_map(|(transform, citizen)| {
+        (!citizen.dead).then(|| {
+            Body::person(Vec2::new(
+                transform.translation.x,
+                transform.translation.z,
+            ))
+        })
+    }));
+    bodies.oriented.extend(officers.iter().filter_map(|(transform, officer, _)| {
+        officer.active.then(|| {
+            Body::person(Vec2::new(
+                transform.translation.x,
+                transform.translation.z,
+            ))
+        })
+    }));
     probe.punch = false;
 
     let mut snapshot = WorldSnapshot {
