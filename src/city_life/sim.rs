@@ -4,6 +4,62 @@ use crate::physics::bodies_overlap;
 
 use super::*;
 
+const POLICE_SEARCH_MEMORY_SECONDS: f32 = 12.0;
+
+#[derive(Clone, Copy, Default, Resource)]
+struct PoliceSearchMemory {
+    last_seen: Option<Vec2>,
+    remaining: f32,
+}
+
+fn update_police_search_memory(
+    memory: &mut PoliceSearchMemory,
+    wanted_level: u8,
+    player_position: Vec2,
+    incident: bool,
+    police_has_sight: bool,
+    dt: f32,
+) {
+    if wanted_level == 0 {
+        memory.last_seen = None;
+        memory.remaining = 0.0;
+    } else if incident || police_has_sight {
+        memory.last_seen = Some(player_position);
+        memory.remaining = POLICE_SEARCH_MEMORY_SECONDS;
+    } else if memory.last_seen.is_some() {
+        memory.remaining = (memory.remaining - dt.max(0.0)).max(0.0);
+        if memory.remaining == 0.0 {
+            memory.last_seen = None;
+        }
+    }
+}
+
+fn police_search_target(
+    level: u8,
+    center: Vec2,
+    patrol_position: Vec2,
+    patrol_index: usize,
+    phase: f32,
+    now: f32,
+    tactics: PoliceTactics,
+    player_visible: bool,
+) -> Vec2 {
+    let search_phase = now * (0.45 + level as f32 * 0.08) + phase;
+    let search_offset = Vec2::new(search_phase.cos(), search_phase.sin()) * tactics.search_radius;
+    if level >= 2 {
+        if player_visible {
+            center
+        } else {
+            center + search_offset
+        }
+    } else {
+        let to_target = center - patrol_position;
+        let side = Vec2::new(-to_target.y, to_target.x).normalize_or_zero();
+        let flank_side = if patrol_index % 2 == 0 { 1.0 } else { -1.0 };
+        center + side * (tactics.flank_distance * flank_side) + search_offset
+    }
+}
+
 fn traffic_vehicle_body_at(position: Vec2, along_x: bool, direction: f32) -> Body {
     traffic_vehicle_body(
         &Transform::from_xyz(position.x, 0.48, position.y),
@@ -91,6 +147,8 @@ pub(super) fn simulate_city_life(
     mut wanted: ResMut<WantedState>,
     mut world: ResMut<WorldState>,
     mut restore: ResMut<WorldRestore>,
+    mut commands: Commands,
+    mut search_memory: Option<ResMut<PoliceSearchMemory>>,
     mut traffic: Query<
         (&mut Transform, &mut TrafficCar),
         (
@@ -414,7 +472,38 @@ pub(super) fn simulate_city_life(
             path_rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2 * fallen);
     }
 
+    let police_has_sight = wanted.level > 0
+        && patrols.iter().any(|(transform, _)| {
+            police_line_of_sight_clear(
+                Vec2::new(transform.translation.x, transform.translation.z),
+                player_flat,
+            )
+        });
     wanted.tick(dt, player_incident);
+    let search_position = if let Some(memory) = search_memory.as_deref_mut() {
+        update_police_search_memory(
+            memory,
+            wanted.level,
+            player_flat,
+            player_incident,
+            police_has_sight,
+            dt,
+        );
+        memory.last_seen
+    } else {
+        let mut memory = PoliceSearchMemory::default();
+        update_police_search_memory(
+            &mut memory,
+            wanted.level,
+            player_flat,
+            player_incident,
+            police_has_sight,
+            dt,
+        );
+        let last_seen = memory.last_seen;
+        commands.insert_resource(memory);
+        last_seen
+    };
     for (mut visibility, siren) in &mut siren_lights {
         *visibility = if police_siren_visible(wanted.level, siren.phase, now) {
             Visibility::Visible
@@ -430,17 +519,21 @@ pub(super) fn simulate_city_life(
             None
         };
         let target = if let Some(tactics) = tactics {
-            if wanted.level >= 2 {
+            let center = if police_has_sight {
                 player_flat
             } else {
-                let to_player = player_flat - position;
-                let side = Vec2::new(-to_player.y, to_player.x).normalize_or_zero();
-                let flank_side = if index % 2 == 0 { 1.0 } else { -1.0 };
-                let search_phase = now * (0.45 + wanted.level as f32 * 0.08) + patrol.phase;
-                let search_offset =
-                    Vec2::new(search_phase.cos(), search_phase.sin()) * tactics.search_radius;
-                player_flat + side * (tactics.flank_distance * flank_side) + search_offset
-            }
+                search_position.unwrap_or(position)
+            };
+            police_search_target(
+                wanted.level,
+                center,
+                position,
+                index,
+                patrol.phase,
+                now,
+                tactics,
+                police_has_sight,
+            )
         } else {
             patrol.home
                 + Vec2::new(
@@ -655,6 +748,68 @@ pub(super) fn simulate_city_life(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn police_remembers_and_searches_the_last_visible_player_position() {
+        let mut memory = PoliceSearchMemory::default();
+        let last_seen = Vec2::new(12.0, -8.0);
+        let hidden_player = Vec2::new(70.0, 40.0);
+        update_police_search_memory(&mut memory, 3, last_seen, true, false, 0.016);
+        update_police_search_memory(&mut memory, 3, hidden_player, false, false, 1.0);
+        assert_eq!(memory.last_seen, Some(last_seen));
+        assert_eq!(memory.remaining, POLICE_SEARCH_MEMORY_SECONDS - 1.0);
+
+        let tactics = police_tactics(3, 0, 2.0);
+        let target = police_search_target(
+            3,
+            memory.last_seen.unwrap(),
+            Vec2::ZERO,
+            0,
+            0.0,
+            2.0,
+            tactics,
+            false,
+        );
+        assert!(target.distance(last_seen) <= tactics.search_radius + 1.0e-5);
+        assert!(target.distance(hidden_player) > 1.0);
+
+        let patrol_without_memory = Vec2::new(-20.0, 14.0);
+        let local_search = police_search_target(
+            3,
+            patrol_without_memory,
+            patrol_without_memory,
+            0,
+            0.0,
+            2.0,
+            tactics,
+            false,
+        );
+        assert!(local_search.distance(patrol_without_memory) <= tactics.search_radius + 1.0e-5);
+        assert!(local_search.distance(hidden_player) > 1.0);
+
+        update_police_search_memory(
+            &mut memory,
+            3,
+            hidden_player,
+            false,
+            true,
+            0.016,
+        );
+        assert_eq!(memory.last_seen, Some(hidden_player));
+        update_police_search_memory(
+            &mut memory,
+            3,
+            hidden_player,
+            false,
+            false,
+            POLICE_SEARCH_MEMORY_SECONDS,
+        );
+        assert_eq!(memory.last_seen, None);
+        update_police_search_memory(&mut memory, 1, last_seen, true, true, 0.016);
+        update_police_search_memory(&mut memory, 0, hidden_player, false, false, 0.016);
+        assert_eq!(memory.last_seen, None);
+        assert_eq!(memory.remaining, 0.0);
+    }
 
     #[test]
     fn traffic_avoidance_uses_oriented_vehicle_contacts() {
