@@ -678,6 +678,17 @@ fn blocked_by_parked_car(next: Vec3, car: Vec3, yaw: f32, clearance: f32) -> boo
     physics::bodies_overlap(&player, &parked)
 }
 
+fn vehicle_movement_obstacles(bodies: &[physics::Body]) -> Vec<physics::Body> {
+    bodies
+        .iter()
+        .copied()
+        .filter(|body| {
+            body.half_x > physics::PERSON_HALF_EXTENT
+                || body.half_y > physics::PERSON_HALF_EXTENT
+        })
+        .collect()
+}
+
 fn vehicle_overlaps_any(position: Vec2, yaw: f32, obstacles: &[physics::Body]) -> bool {
     let vehicle = player_vehicle_body(position, yaw);
     obstacles
@@ -1091,7 +1102,7 @@ fn controls(
             + Vec2::new(right.x, right.z) * game.lateral_speed)
             * dt;
         let start = Vec2::new(game.car.x, game.car.z);
-        let blockers = traffic.oriented.clone();
+        let blockers = vehicle_movement_obstacles(&traffic.oriented);
         let separated = physics::resolve_body_overlaps(
             player_vehicle_body(start, game.yaw),
             &blockers,
@@ -1619,8 +1630,9 @@ mod tests {
             &[nearby_person],
             PLAYER_BODY_RADIUS,
         ));
+        // The center gap is 0.85 m, larger than the 0.80 m sum of half-extents.
         assert!(!collides_walking_with_bodies(
-            Vec2::new(0.9, 0.0),
+            Vec2::new(1.6, 0.0),
             &[],
             &[nearby_person],
             PLAYER_BODY_RADIUS,
@@ -1628,32 +1640,31 @@ mod tests {
     }
 
     #[test]
-    fn driving_player_slides_before_vehicle_and_pedestrian_obbs() {
+    fn driving_player_stops_before_vehicle_but_can_hit_pedestrians() {
         let traffic_car = physics::Body::vehicle(Vec2::ZERO, 0.0);
+        let vehicle_blockers = vehicle_movement_obstacles(&[traffic_car]);
+        assert_eq!(vehicle_blockers.len(), 1);
         let start = Vec2::new(-6.0, 0.0);
         let stopped = physics::move_with_slide(start, Vec2::new(12.0, 0.0), |point| {
-            collides_vehicle_with_bodies(point, 0.0, &[], &[traffic_car])
+            collides_vehicle_with_bodies(point, 0.0, &[], &vehicle_blockers)
         });
         assert!(stopped.x < -3.0);
         assert!(!collides_vehicle_with_bodies(
             stopped,
             0.0,
             &[],
-            &[traffic_car],
+            &vehicle_blockers,
         ));
 
         let pedestrian = physics::Body::person(Vec2::ZERO);
+        let pedestrian_blockers = vehicle_movement_obstacles(&[pedestrian]);
+        assert!(pedestrian_blockers.is_empty());
         let start = Vec2::new(-4.0, 0.0);
-        let stopped = physics::move_with_slide(start, Vec2::new(8.0, 0.0), |point| {
-            collides_vehicle_with_bodies(point, 0.0, &[], &[pedestrian])
+        let moved = physics::move_with_slide(start, Vec2::new(4.0, 0.0), |point| {
+            collides_vehicle_with_bodies(point, 0.0, &[], &pedestrian_blockers)
         });
-        assert!(stopped.x < -1.2);
-        assert!(!collides_vehicle_with_bodies(
-            stopped,
-            0.0,
-            &[],
-            &[pedestrian],
-        ));
+        assert!(moved.distance(Vec2::ZERO) < 1.0e-4);
+        assert!(vehicle_overlaps_any(moved, 0.0, &[pedestrian]));
     }
 
     #[test]
