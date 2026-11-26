@@ -24,7 +24,18 @@ pub(super) fn choose_real_width_traffic_offset(
         let candidate = crate::physics::move_with_slide(current, target - current, |point| {
             vehicle_city_collision(point, vehicle_yaw) || blocked(point)
         });
-        if candidate.distance(target) < 0.05 {
+        if candidate.distance(target) >= 0.05 {
+            continue;
+        }
+
+        // Avoid committing to a lane that has no room to move forward after merging.
+        let forward_target = target + forward * crate::physics::VEHICLE_HALF_LENGTH;
+        let forward_candidate = crate::physics::move_with_slide(
+            candidate,
+            forward_target - candidate,
+            |point| vehicle_city_collision(point, vehicle_yaw) || blocked(point),
+        );
+        if forward_candidate.distance(forward_target) < 0.05 {
             return Some(offset);
         }
     }
@@ -60,6 +71,15 @@ mod tests {
         let current = Vec2::ZERO;
         let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |_| {
             false
+        });
+        assert_eq!(offset, None);
+    }
+
+    #[test]
+    fn passing_rejects_a_lane_blocked_just_after_the_merge() {
+        let current = Vec2::new(0.0, 0.8);
+        let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |p| {
+            p.x > 1.0 && p.y < -1.0
         });
         assert_eq!(offset, None);
     }
