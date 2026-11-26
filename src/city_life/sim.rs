@@ -372,6 +372,14 @@ pub(super) fn simulate_city_life(
         pair_obstacles.push(parked);
     }
     pair_obstacles.extend(patrol_vehicle_bodies.iter().copied());
+    pair_obstacles.extend(citizens.iter().filter_map(|(transform, citizen)| {
+        (!citizen.dead).then(|| {
+            Body::person(Vec2::new(
+                transform.translation.x,
+                transform.translation.z,
+            ))
+        })
+    }));
     let pair_moved = resolve_traffic_body_pairs(&mut pair_bodies, &pair_obstacles);
     for (index, ((mut transform, mut car), body)) in
         traffic.iter_mut().zip(pair_bodies.into_iter()).enumerate()
@@ -897,6 +905,81 @@ mod tests {
             &player,
         ));
         assert!(!officer_blocked(Vec2::new(12.0, 0.0), &[nearby_car], &player));
+    }
+
+    #[test]
+    fn live_traffic_pair_separation_respects_pedestrian_bodies() {
+        use bevy::ecs::system::RunSystemOnce;
+        use std::time::Duration;
+
+        let mut world = World::new();
+        let mut time = Time::<()>::default();
+        time.advance_by(Duration::from_millis(16));
+        world.insert_resource(time);
+        world.insert_resource(PlayerProbe {
+            position: Vec3::new(120.0, 0.9, 120.0),
+            vehicle_position: Vec3::new(122.0, 0.65, 120.0),
+            forward: Vec3::NEG_Z,
+            in_vehicle: false,
+            punch: false,
+            health: 100.0,
+        });
+        world.init_resource::<TrafficBodies>();
+        world.init_resource::<WantedState>();
+        world.init_resource::<WorldState>();
+        world.init_resource::<WorldRestore>();
+
+        for z in [0.0, 1.5] {
+            world.spawn((
+                Transform::from_xyz(0.0, 0.48, z),
+                TrafficCar {
+                    speed: 0.0,
+                    direction: 1.0,
+                    along_x: true,
+                    stop_timer: 120.0,
+                    lane_offset: 0.0,
+                    avoid_offset: 0.0,
+                },
+            ));
+        }
+        let pedestrian_origin = Vec3::new(0.0, 0.82, -1.45);
+        world.spawn((
+            Transform::from_translation(pedestrian_origin),
+            Citizen {
+                origin: pedestrian_origin,
+                phase: 0.0,
+                speed: 0.0,
+                range: 0.0,
+                along_x: true,
+                displacement: Vec3::ZERO,
+                knock_velocity: Vec3::ZERO,
+                knocked: 0.0,
+                health: CITIZEN_HEALTH,
+                dead: false,
+            },
+        ));
+
+        for _ in 0..2 {
+            world
+                .resource_mut::<Time<()>>()
+                .advance_by(Duration::from_millis(16));
+            world
+                .run_system_once(simulate_city_life)
+                .expect("live traffic pair separation respects pedestrian OBBs");
+
+            let pedestrian_body = {
+                let mut query = world.query_filtered::<(&Transform, &Citizen), With<Citizen>>();
+                let (transform, citizen) = query.single(&world).expect("one pedestrian");
+                assert!(!citizen.dead);
+                assert_eq!(citizen.health, CITIZEN_HEALTH);
+                Body::person(Vec2::new(transform.translation.x, transform.translation.z))
+            };
+            let mut query = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
+            for (transform, car) in query.iter(&world) {
+                let vehicle = traffic_vehicle_body(transform, car.along_x, car.direction);
+                assert!(!bodies_overlap(&vehicle, &pedestrian_body));
+            }
+        }
     }
 
     #[test]
