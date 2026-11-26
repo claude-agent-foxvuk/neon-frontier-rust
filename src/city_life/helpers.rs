@@ -220,10 +220,15 @@ pub(super) fn choose_safe_traffic_offset(
 ) -> Option<f32> {
     let forward = Vec2::new(side.y, -side.x);
     let vehicle_yaw = forward.y.atan2(forward.x);
+    let passing_offset = CAR_PASSING_OFFSET.min(
+        (road_half_width - crate::physics::VEHICLE_HALF_WIDTH - 0.05).max(0.0),
+    );
     for direction in [1.0, -1.0] {
-        let offset = direction * CAR_PASSING_OFFSET;
+        let offset = direction * passing_offset;
         let target = baseline + side * offset;
-        if (target.dot(side) - road_center).abs() + CAR_BODY_RADIUS > road_half_width {
+        if (target.dot(side) - road_center).abs() + crate::physics::VEHICLE_HALF_WIDTH
+            > road_half_width
+        {
             continue;
         }
         let candidate = crate::physics::move_with_slide(current, target - current, |point| {
@@ -279,10 +284,8 @@ mod oriented_traffic_tests {
         let clear_adjacent_lane = crate::physics::Body::vehicle(Vec2::new(4.0, 2.0), 0.0);
         assert!(!has_car_ahead(clear_adjacent_lane));
 
-        let crossing_lane = crate::physics::Body::vehicle(
-            Vec2::new(4.0, 1.8),
-            std::f32::consts::FRAC_PI_2,
-        );
+        let crossing_lane =
+            crate::physics::Body::vehicle(Vec2::new(4.0, 1.8), std::f32::consts::FRAC_PI_2);
         assert!(has_car_ahead(crossing_lane));
     }
 
@@ -349,10 +352,8 @@ mod oriented_traffic_tests {
         assert!(!has_obstacle_at(adjacent_lane, true, None, &[]));
         assert!(has_obstacle_at(same_lane, true, None, &[]));
 
-        let across_lane_car = crate::physics::Body::vehicle(
-            adjacent_lane,
-            std::f32::consts::FRAC_PI_2,
-        );
+        let across_lane_car =
+            crate::physics::Body::vehicle(adjacent_lane, std::f32::consts::FRAC_PI_2);
         assert!(has_obstacle_at(far_away, false, Some(across_lane_car), &[]));
         assert!(has_obstacle_at(far_away, false, None, &[across_lane_car]));
     }
@@ -383,6 +384,23 @@ mod oriented_traffic_tests {
         assert!(vehicle_city_collision(Vec2::new(f32::NAN, 0.0), 0.0));
         assert!(vehicle_city_collision(Vec2::new(CITY_LIMIT - 1.0, 0.0), 0.0));
         assert!(!vehicle_city_collision(Vec2::ZERO, 0.0));
+    }
+
+    #[test]
+    fn offset_planning_uses_vehicle_width_to_fit_a_centered_road() {
+        let selected = choose_safe_traffic_offset(
+            Vec2::ZERO,
+            Vec2::ZERO,
+            Vec2::Y,
+            0.0,
+            ROAD_HALF_WIDTH,
+            |_| false,
+        )
+        .expect("the vehicle footprint fits inside one side of the road");
+
+        assert!((selected.abs() - (ROAD_HALF_WIDTH - crate::physics::VEHICLE_HALF_WIDTH - 0.05)).abs() < 1.0e-5);
+        assert!(selected.abs() >= CAR_PASSING_OFFSET - 0.1);
+        assert!(selected.abs() + crate::physics::VEHICLE_HALF_WIDTH <= ROAD_HALF_WIDTH - 0.049);
     }
 
     #[test]
