@@ -1,6 +1,6 @@
 use bevy::prelude::Vec2;
 
-use super::{vehicle_city_collision, CAR_PASSING_OFFSET};
+use super::{vehicle_city_collision, CAR_BRAKE_DISTANCE, CAR_PASSING_OFFSET};
 
 /// Select a passing lane only when the whole vehicle and its swept path fit.
 pub(super) fn choose_real_width_traffic_offset(
@@ -28,8 +28,8 @@ pub(super) fn choose_real_width_traffic_offset(
             continue;
         }
 
-        // Avoid committing to a lane that has no room to move forward after merging.
-        let forward_target = target + forward * crate::physics::VEHICLE_HALF_LENGTH;
+        // Keep a full braking-distance corridor clear after merging, not only the car's nose.
+        let forward_target = target + forward * CAR_BRAKE_DISTANCE;
         let forward_candidate = crate::physics::move_with_slide(
             candidate,
             forward_target - candidate,
@@ -80,6 +80,15 @@ mod tests {
         let current = Vec2::new(0.0, 0.8);
         let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |p| {
             p.x > 1.0 && p.y < -1.0
+        });
+        assert_eq!(offset, None);
+    }
+
+    #[test]
+    fn passing_rejects_an_obstacle_further_down_the_braking_corridor() {
+        let current = Vec2::new(0.0, 0.8);
+        let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |p| {
+            p.x > 4.0 && p.y < -1.0
         });
         assert_eq!(offset, None);
     }
