@@ -644,7 +644,7 @@ fn collides(pos: Vec2, radius: f32, buildings: &[Vec2]) -> bool {
 }
 
 fn player_vehicle_body(position: Vec2, yaw: f32) -> physics::Body {
-    physics::Body::vehicle(position, yaw + std::f32::consts::FRAC_PI_2)
+    physics::Body::vehicle(position, std::f32::consts::FRAC_PI_2 - yaw)
 }
 
 fn collides_vehicle(pos: Vec2, yaw: f32, buildings: &[Vec2]) -> bool {
@@ -1599,6 +1599,17 @@ mod tests {
     }
 
     #[test]
+    fn player_vehicle_obb_matches_visual_heading_at_diagonal_yaw() {
+        let yaw = std::f32::consts::FRAC_PI_4;
+        let forward = Vec2::new(yaw.sin(), yaw.cos());
+        let side = Vec2::new(forward.y, -forward.x);
+        let body = player_vehicle_body(Vec2::ZERO, yaw);
+
+        assert!(body.contains_point(forward * 1.8, 0.0));
+        assert!(!body.contains_point(side * 1.8, 0.0));
+    }
+
+    #[test]
     fn player_vehicle_and_walking_contacts_use_obb_not_circle_radius() {
         let parallel_car = physics::Body::vehicle(
             Vec2::new(2.0, 0.0),
@@ -1652,7 +1663,6 @@ mod tests {
         assert!(!collides_vehicle_with_bodies(
             stopped,
             0.0,
-            &[],
             &vehicle_blockers,
         ));
 
@@ -1737,7 +1747,7 @@ mod tests {
     }
 
     #[test]
-    fn steering_changes_smoothly_toward_input_and_self_centers() {
+    fn steering_changes_smoothly_toward_input_and_self-centers() {
         let first = vehicle_steering_step(0.0, 1.0, 0.05);
         let second = vehicle_steering_step(first, 1.0, 0.05);
         assert!(first > 0.0 && first < 1.0);
