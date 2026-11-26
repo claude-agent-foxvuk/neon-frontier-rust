@@ -177,3 +177,57 @@ fn live_player_vehicle_obb_avoids_circle_only_false_positive() {
     assert_eq!(snapshot.citizens[0].health, CITIZEN_HEALTH);
     assert_eq!(snapshot.wanted_level, 0);
 }
+
+#[test]
+fn live_city_publishes_oriented_vehicle_and_pedestrian_bodies() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(PlayerProbe::default());
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    world.spawn((
+        Transform::from_xyz(16.0, 0.48, 0.0),
+        TrafficCar {
+            speed: 0.0,
+            direction: 1.0,
+            along_x: true,
+            stop_timer: 0.0,
+            lane_offset: 0.0,
+            avoid_offset: 0.0,
+        },
+    ));
+    let pedestrian = Vec3::new(32.0, 0.82, 12.0);
+    world.spawn((
+        Transform::from_translation(pedestrian),
+        Citizen {
+            origin: pedestrian,
+            phase: 0.0,
+            speed: 0.0,
+            range: 0.0,
+            along_x: true,
+            displacement: Vec3::ZERO,
+            knock_velocity: Vec3::ZERO,
+            knocked: 0.0,
+            health: CITIZEN_HEALTH,
+            dead: false,
+        },
+    ));
+
+    world
+        .run_system_once(simulate_city_life)
+        .expect("live city simulation publishes collision bodies for player movement");
+
+    let bodies = &world.resource::<TrafficBodies>().oriented;
+    assert_eq!(bodies.len(), 2);
+    assert!(bodies
+        .iter()
+        .any(|body| body.half_x > crate::physics::PERSON_HALF_EXTENT));
+    assert!(bodies
+        .iter()
+        .any(|body| body.half_x == crate::physics::PERSON_HALF_EXTENT));
+}
