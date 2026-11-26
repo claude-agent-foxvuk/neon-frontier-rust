@@ -20,6 +20,9 @@ mod restore_tests;
 mod traffic_regression_tests;
 
 #[cfg(test)]
+mod traffic_avoidance_runtime_tests;
+
+#[cfg(test)]
 mod player_collision_tests;
 
 #[cfg(test)]
