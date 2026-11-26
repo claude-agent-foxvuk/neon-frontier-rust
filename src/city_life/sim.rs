@@ -7,7 +7,7 @@ use super::*;
 const POLICE_SEARCH_MEMORY_SECONDS: f32 = 12.0;
 
 #[derive(Clone, Copy, Default, Resource)]
-struct PoliceSearchMemory {
+pub(super) struct PoliceSearchMemory {
     last_seen: Option<Vec2>,
     remaining: f32,
 }
