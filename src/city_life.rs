@@ -7,16 +7,16 @@ mod menu_clock;
 mod base {
     use super::*;
 
-    #[path = "city_life/helpers.rs"]
+    #[path = "helpers.rs"]
     mod helpers;
     use helpers::*;
 
-    #[path = "city_life/traffic_avoidance.rs"]
+    #[path = "traffic_avoidance.rs"]
     mod traffic_avoidance;
     use traffic_avoidance::choose_real_width_traffic_offset as choose_safe_traffic_offset;
     pub(super) use traffic_avoidance::turn_traffic_at_world_edge;
 
-    #[path = "city_life/sim.rs"]
+    #[path = "sim.rs"]
     mod sim;
     pub(super) use sim::simulate_city_life;
 
