@@ -42,11 +42,60 @@ pub(super) fn toggle_graphics_profile(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
 
     #[test]
     fn graphics_profile_toggles_between_quality_and_performance() {
         assert!(!next_quality_enabled(true, true));
         assert!(!next_quality_enabled(false, true));
         assert!(next_quality_enabled(false, false));
+    }
+
+    #[test]
+    fn f2_changes_bloom_and_sun_shadows_in_both_directions() {
+        for initial_quality in [true, false] {
+            let mut world = World::new();
+            let mut keys = ButtonInput::<KeyCode>::default();
+            keys.press(KeyCode::F2);
+            world.insert_resource(keys);
+
+            let mut game = crate::Game::default();
+            game.bloom = initial_quality;
+            world.insert_resource(game);
+
+            let sun = world
+                .spawn((
+                    crate::SunLight,
+                    DirectionalLight {
+                        shadows_enabled: initial_quality,
+                        ..default()
+                    },
+                ))
+                .id();
+            let camera = world.spawn(crate::FollowCamera).id();
+            if initial_quality {
+                world.entity_mut(camera).insert(Bloom::NATURAL);
+            }
+
+            world
+                .run_system_once(toggle_graphics_profile)
+                .expect("F2 applies the selected graphics profile");
+            world.flush();
+
+            let expected_quality = !initial_quality;
+            assert_eq!(
+                world.resource::<crate::Game>().bloom,
+                expected_quality
+            );
+            assert_eq!(
+                world.get::<DirectionalLight>(sun).unwrap().shadows_enabled,
+                expected_quality
+            );
+            assert_eq!(
+                world.get::<Bloom>(camera).is_some(),
+                expected_quality
+            );
+            assert_eq!(world.resource::<crate::Game>().notice_timer, 3.0);
+        }
     }
 }
