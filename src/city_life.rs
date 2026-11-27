@@ -24,6 +24,7 @@ mod base {
 
     include!("city_life/core.rs");
     include!("city_life/officer_reinforcements.rs");
+    include!("city_life/population_stream.rs");
 
     const OFFICER_RETURN_DISTANCE: f32 = 42.0;
     const OFFICER_BOARD_DISTANCE: f32 = 3.0;
@@ -115,6 +116,12 @@ mod base {
 
     pub(super) fn add_followup_systems(app: &mut App) {
         app.init_resource::<OfficerReinforcementState>()
+            .add_systems(
+                Update,
+                recycle_city_population
+                    .after(crate::controls)
+                    .before(simulate_city_life),
+            )
             .add_systems(
                 Update,
                 (advance_officer_reinforcements, register_officer_casualties)
