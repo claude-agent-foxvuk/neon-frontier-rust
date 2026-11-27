@@ -109,9 +109,20 @@ fn advance_event(state: &mut CityEvents, input: EventInput, dt: f32) -> Option<E
     Some(EventSignal::Started(kind))
 }
 
+fn display_seconds_ceil(remaining: f32) -> u32 {
+    let remaining = remaining.max(0.0);
+    let nearest_second = remaining.round();
+    let tolerance = remaining.max(1.0) * f32::EPSILON * 4.0;
+    if nearest_second >= 1.0 && (remaining - nearest_second).abs() <= tolerance {
+        nearest_second as u32
+    } else {
+        remaining.ceil() as u32
+    }
+}
+
 fn active_event_notice(state: &CityEvents) -> Option<String> {
     let event = state.active.as_ref()?;
-    let remaining = event.remaining.ceil() as u32;
+    let remaining = display_seconds_ceil(event.remaining);
     match event.kind {
         EventKind::EscapePolice => Some(format!(
             "Событие: скройся от полиции • осталось {remaining} с"
@@ -268,6 +279,14 @@ mod tests {
                 Some(EventSignal::Failed(EventKind::SpeedDrive))
             );
         }
+    }
+
+    #[test]
+    fn remaining_event_seconds_ignore_only_float_precision_noise() {
+        assert_eq!(display_seconds_ceil(85.000_01), 85);
+        assert_eq!(display_seconds_ceil(85.01), 86);
+        assert_eq!(display_seconds_ceil(0.000_01), 1);
+        assert_eq!(display_seconds_ceil(0.0), 0);
     }
 
     #[test]
