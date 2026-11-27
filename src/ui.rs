@@ -22,6 +22,8 @@ const MENU_TEXT_RIGHT: f32 = 540.0;
 const MENU_FIRST_ROW_TOP: f32 = 140.0;
 const MENU_ROW_HEIGHT: f32 = 24.0;
 const HUD_MAX_LINE_CHARS: usize = 48;
+const HUD_METER_WIDTH: usize = 10;
+const WANTED_LEVELS: usize = 6;
 
 #[derive(Component)]
 pub struct Hud;
@@ -86,6 +88,10 @@ fn wanted_status(state: &str) -> String {
         return state.to_string();
     };
     let level = stars.chars().filter(|character| *character == '★').count();
+    let level = level.min(WANTED_LEVELS);
+    let meter: String = (0..WANTED_LEVELS)
+        .map(|index| if index < level { '★' } else { '☆' })
+        .collect();
     let response = match level {
         0 => "патрули не разыскивают игрока",
         1 => "патруль начинает автомобильное преследование",
@@ -93,7 +99,7 @@ fn wanted_status(state: &str) -> String {
         3..=5 => "скорость автомобильного преследования растёт",
         _ => "максимальный уровень преследования",
     };
-    format!("{mode}\nРОЗЫСК {level}/6 • {response}")
+    format!("{mode}\nРОЗЫСК {level}/6 [{meter}] • {response}")
 }
 
 fn wrap_hud_line(line: &str) -> String {
@@ -133,13 +139,21 @@ fn wrap_hud_text(text: &str) -> String {
 pub fn health_line(health: f32) -> String {
     let clamped = health.clamp(0.0, 100.0);
     let rounded = clamped.round() as i32;
-    if clamped <= 0.0 {
-        format!("Здоровье: {rounded}% • нужен новый заезд")
+    let filled = ((rounded.clamp(0, 100) as usize * HUD_METER_WIDTH + 50) / 100)
+        .min(HUD_METER_WIDTH);
+    let meter = format!(
+        "{}{}",
+        "█".repeat(filled),
+        "░".repeat(HUD_METER_WIDTH - filled),
+    );
+    let status = if clamped <= 0.0 {
+        " • нужен новый заезд"
     } else if clamped <= 25.0 {
-        format!("Здоровье: {rounded}% • тяжело ранен")
+        " • тяжело ранен"
     } else {
-        format!("Здоровье: {rounded}%")
-    }
+        ""
+    };
+    format!("Здоровье: [{meter}] {rounded}%{status}")
 }
 
 pub fn compose_hud(
@@ -227,13 +241,19 @@ mod tests {
     }
 
     #[test]
-    fn health_line_reports_whole_percentages_and_damage_states() {
-        assert_eq!(health_line(100.0), "Здоровье: 100%");
-        assert_eq!(health_line(64.4), "Здоровье: 64%");
+    fn health_line_reports_a_visual_meter_and_damage_states() {
+        assert_eq!(
+            health_line(100.0),
+            "Здоровье: [██████████] 100%"
+        );
+        assert_eq!(
+            health_line(64.4),
+            "Здоровье: [██████░░░░] 64%"
+        );
         assert!(health_line(20.0).contains("тяжело ранен"));
         assert!(health_line(0.0).contains("нужен новый заезд"));
         assert!(health_line(-5.0).contains("0%"));
-        assert_eq!(health_line(f32::NAN).contains('%'), true);
+        assert!(health_line(f32::NAN).contains('%'));
     }
 
     #[test]
@@ -251,7 +271,7 @@ mod tests {
 
         assert!(hud.contains("точка 1/3"));
         assert!(hud.contains("Кредиты: 100"));
-        assert!(hud.contains("Здоровье: 73%"));
+        assert!(hud.contains("Здоровье: [███████░░░] 73%"));
         assert!(hud.contains("WASD: движение/газ"));
         assert!(hud.contains("Space: прыжок • F: удар"));
         assert!(hud.contains("ПЕШКОМ"));
@@ -315,14 +335,14 @@ mod tests {
     }
 
     #[test]
-    fn wanted_levels_are_numbered_out_of_six_and_show_distinct_pursuit() {
+    fn wanted_levels_show_a_fixed_six_star_meter_and_distinct_pursuit() {
         let one_star = wanted_status("ПЕШКОМ • розыск: ★");
         let two_stars = wanted_status("ПЕШКОМ • розыск: ★★");
         let six_stars = wanted_status("ПЕШКОМ • розыск: ★★★★★★");
 
-        assert!(one_star.contains("РОЗЫСК 1/6"));
-        assert!(two_stars.contains("РОЗЫСК 2/6"));
-        assert!(six_stars.contains("РОЗЫСК 6/6"));
+        assert!(one_star.contains("РОЗЫСК 1/6 [★☆☆☆☆☆]"));
+        assert!(two_stars.contains("РОЗЫСК 2/6 [★★☆☆☆☆]"));
+        assert!(six_stars.contains("РОЗЫСК 6/6 [★★★★★★]"));
         assert_ne!(one_star, two_stars);
     }
 }
