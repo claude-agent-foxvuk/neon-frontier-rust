@@ -25,6 +25,7 @@ mod base {
     include!("city_life/core.rs");
     include!("city_life/officer_reinforcements.rs");
     include!("city_life/population_stream.rs");
+    include!("city_life/witness_system.rs");
 
     const OFFICER_RETURN_DISTANCE: f32 = 42.0;
     const OFFICER_BOARD_DISTANCE: f32 = 3.0;
@@ -116,6 +117,13 @@ mod base {
 
     pub(super) fn add_followup_systems(app: &mut App) {
         app.init_resource::<OfficerReinforcementState>()
+            .init_resource::<WantedWitnessSnapshot>()
+            .add_systems(
+                Update,
+                capture_wanted_before_incident
+                    .after(crate::controls)
+                    .before(advance_officer_reinforcements),
+            )
             .add_systems(
                 Update,
                 recycle_city_population
@@ -128,6 +136,12 @@ mod base {
                     .chain()
                     .after(crate::controls)
                     .before(simulate_city_life),
+            )
+            .add_systems(
+                Update,
+                suppress_unwitnessed_wanted_increase
+                    .after(simulate_city_life)
+                    .before(super::city_events::city_event_system),
             )
             .add_systems(
                 Update,
