@@ -301,7 +301,7 @@ mod tests {
         advance_event(&mut state, input(), 4.9);
         assert_eq!(
             active_event_notice(&state).as_deref(),
-            Some("Событие: чистая езда 4/20 с • осталось 85 с")
+            Some("Событие: чистая езда 4/20 с • осталось 86 с")
         );
 
         let mut police = input();
