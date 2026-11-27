@@ -24,6 +24,7 @@ const MENU_ROW_HEIGHT: f32 = 24.0;
 const HUD_MAX_LINE_CHARS: usize = 48;
 const HUD_METER_WIDTH: usize = 10;
 const WANTED_LEVELS: usize = 6;
+const MISSION_CYCLE_CREDITS: u32 = 300;
 
 #[derive(Component)]
 pub struct Hud;
@@ -104,6 +105,19 @@ fn wanted_status(state: &str) -> String {
     format!("{mode}\nРОЗЫСК {level}/6 [{meter}] • {response}")
 }
 
+fn mission_progress_line(credits: u32) -> String {
+    let progress = credits % MISSION_CYCLE_CREDITS;
+    let filled = ((progress * HUD_METER_WIDTH as u32 + MISSION_CYCLE_CREDITS / 2)
+        / MISSION_CYCLE_CREDITS) as usize;
+    let meter = format!(
+        "{}{}",
+        "█".repeat(filled.min(HUD_METER_WIDTH)),
+        "░".repeat(HUD_METER_WIDTH - filled.min(HUD_METER_WIDTH)),
+    );
+    let remaining = MISSION_CYCLE_CREDITS - progress;
+    format!("До смены маршрута: [{meter}] {remaining} кр.")
+}
+
 fn wrap_hud_line(line: &str) -> String {
     let mut wrapped = String::new();
     let mut current_chars = 0;
@@ -179,9 +193,10 @@ pub fn compose_hud(
         notice
     };
     let hud = format!(
-        "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n{}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • E: машина/выход • F5: сохранить • F9: загрузить\n{}",
+        "NEON FRONTIER • ранняя версия\n\n{}\nКредиты: {}\n{}\n{}\n\n{}\n{}\n{}\n\nWASD: движение/газ • Shift: бег\nSpace: прыжок • F: удар\n{}\nB: bloom • E: машина/выход • F5: сохранить • F9: загрузить\n{}",
         objective,
         credits,
+        mission_progress_line(credits),
         health_line(health),
         wanted_status(state),
         interaction,
@@ -267,11 +282,21 @@ mod tests {
 
         assert!(hud.contains("точка 1/3"));
         assert!(hud.contains("Кредиты: 100"));
+        assert!(hud.contains("До смены маршрута: [███░░░░░░░] 200 кр."));
         assert!(hud.contains("Здоровье: [███████░░░] 73%"));
         assert!(hud.contains("WASD: движение/газ"));
         assert!(hud.contains("Space: прыжок • F: удар"));
         assert!(hud.contains("ПЕШКОМ"));
         assert!(hud.contains("Сохранение загружено"));
+    }
+
+    #[test]
+    fn mission_route_meter_resets_at_each_three_hundred_credit_cycle() {
+        assert!(mission_progress_line(0).contains("[░░░░░░░░░░] 300 кр."));
+        assert!(mission_progress_line(100).contains("[███░░░░░░░] 200 кр."));
+        assert!(mission_progress_line(200).contains("[███████░░░] 100 кр."));
+        assert!(mission_progress_line(299).contains("[██████████] 1 кр."));
+        assert!(mission_progress_line(300).contains("[░░░░░░░░░░] 300 кр."));
     }
 
     #[test]
