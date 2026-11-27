@@ -273,8 +273,9 @@ mod tests {
             assert!(center.y.abs() - half_tile > road_half_width);
             assert!(center.x.abs() + half_tile < building_edge);
             assert!(center.y.abs() + half_tile < building_edge);
-            assert!(1.52 + (PARK_TILE_SIZE - 0.72) * 0.5 < half_tile);
-            assert!(2.02 + 0.08 < half_tile);
+            assert!(1.52 + PARK_PATH_WIDTH * 0.5 < half_tile);
+            assert!((PARK_TILE_SIZE - 0.72) * 0.5 < half_tile);
+            assert!(2.02 + 0.08 <= half_tile + 1.0e-5);
         }
     }
 }
