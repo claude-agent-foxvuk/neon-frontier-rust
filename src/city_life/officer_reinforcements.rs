@@ -4,8 +4,6 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use std::time::Duration;
 
-use crate::physics::{bodies_overlap, Body};
-
 use super::*;
 
 const OFFICER_REINFORCEMENT_DELAY: f32 = 4.5;
@@ -133,7 +131,7 @@ fn register_officer_casualties(
     };
     let player_vehicle = probe
         .in_vehicle
-        .then(|| super::vehicle_body_from_forward(probe.position, player_forward));
+        .then(|| vehicle_body_from_forward(probe.position, player_forward));
 
     for (entity, transform, mut officer, mut visibility) in &mut officers {
         if !officer.active || state.pending.contains_key(&entity) {
@@ -176,7 +174,7 @@ fn register_officer_casualties(
 }
 
 #[cfg(test)]
-mod tests {
+mod officer_reinforcement_tests {
     use super::*;
 
     #[test]
