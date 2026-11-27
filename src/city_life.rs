@@ -2,16 +2,22 @@ use bevy::prelude::*;
 
 mod city_events;
 mod city_neon;
-mod helpers;
-use helpers::*;
 mod menu_clock;
-mod sim;
-use sim::simulate_city_life;
-mod traffic_avoidance;
-use traffic_avoidance::choose_real_width_traffic_offset as choose_safe_traffic_offset;
 
 mod base {
-    use super::simulate_city_life;
+    use super::*;
+
+    #[path = "city_life/helpers.rs"]
+    mod helpers;
+    use helpers::*;
+
+    #[path = "city_life/traffic_avoidance.rs"]
+    mod traffic_avoidance;
+    use traffic_avoidance::choose_real_width_traffic_offset as choose_safe_traffic_offset;
+
+    #[path = "city_life/sim.rs"]
+    mod sim;
+    pub(super) use sim::simulate_city_life;
 
     include!("city_life/core.rs");
 
@@ -68,7 +74,7 @@ impl Plugin for CityLifePlugin {
             .add_systems(
                 Update,
                 city_events::city_event_system
-                    .after(simulate_city_life)
+                    .after(base::simulate_city_life)
                     .after(crate::controls),
             );
     }
