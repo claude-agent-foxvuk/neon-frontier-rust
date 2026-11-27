@@ -5,7 +5,7 @@ use crate::physics::Body;
 use super::{TrafficBodies, WantedState};
 
 #[derive(Component)]
-struct ReserveCruiser {
+pub(super) struct ReserveCruiser {
     index: usize,
 }
 
