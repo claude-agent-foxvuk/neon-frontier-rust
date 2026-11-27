@@ -268,10 +268,7 @@ mod tests {
         let restored = world.get::<FootOfficer>(officer).unwrap();
         assert_eq!(restored.patrol_index, usize::MAX);
         assert!(!restored.active);
-        assert_eq!(
-            restored.shot_timer,
-            OFFICER_REINFORCEMENT_SAVE_MARKER
-        );
+        assert_eq!(restored.shot_timer, OFFICER_REINFORCEMENT_SAVE_MARKER);
         assert!(world
             .resource::<OfficerReinforcementState>()
             .pending
@@ -336,5 +333,92 @@ mod tests {
             .resource::<OfficerReinforcementState>()
             .pending
             .contains_key(&officer));
+    }
+
+    #[test]
+    fn a_casualty_gets_a_visible_replacement_in_the_live_simulation() {
+        let mut world = World::new();
+        let mut time = Time::<()>::default();
+        time.advance_by(Duration::from_millis(50));
+        world.insert_resource(time);
+        let mut game = crate::Game::default();
+        game.started = true;
+        world.insert_resource(game);
+        world.insert_resource(PlayerProbe {
+            position: Vec3::new(0.0, 0.9, 0.0),
+            vehicle_position: Vec3::new(0.0, 0.65, 0.0),
+            forward: Vec3::NEG_Z,
+            in_vehicle: true,
+            punch: false,
+            health: 100.0,
+        });
+        let mut wanted = WantedState::default();
+        wanted.level = 1;
+        world.insert_resource(wanted);
+        world.init_resource::<TrafficBodies>();
+        world.init_resource::<WorldState>();
+        world.init_resource::<WorldRestore>();
+        world.init_resource::<OfficerReinforcementState>();
+        world.init_resource::<PoliceSearchMemory>();
+        world.spawn((
+            Transform::from_xyz(-20.0, 0.48, 0.0),
+            PolicePatrol {
+                home: Vec2::new(-20.0, 0.0),
+                phase: 0.0,
+            },
+        ));
+        let officer = world
+            .spawn((
+                Transform::from_xyz(0.9, 0.82, 0.0),
+                FootOfficer {
+                    patrol_index: 0,
+                    active: true,
+                    shot_timer: 0.0,
+                },
+                Visibility::Visible,
+            ))
+            .id();
+
+        world
+            .run_system_once(advance_officer_reinforcements)
+            .expect("no casualty is pending before the player hits the officer");
+        world
+            .run_system_once(register_officer_casualties)
+            .expect("the player impact registers the officer casualty");
+        world
+            .run_system_once(simulate_city_life)
+            .expect("the live city sim hides the fallen officer");
+        assert_eq!(world.resource::<WantedState>().level, 2);
+        assert!(!world.get::<FootOfficer>(officer).unwrap().active);
+        assert_eq!(*world.get::<Visibility>(officer).unwrap(), Visibility::Hidden);
+
+        let mut replacement_arrived = false;
+        for _ in 0..100 {
+            world
+                .resource_mut::<Time<()>>()
+                .advance_by(Duration::from_millis(50));
+            world
+                .run_system_once(advance_officer_reinforcements)
+                .expect("the delayed response advances each live tick");
+            world
+                .run_system_once(register_officer_casualties)
+                .expect("a pending casualty is not counted twice");
+            world
+                .run_system_once(simulate_city_life)
+                .expect("the live simulation deploys the replacement");
+            if world.get::<FootOfficer>(officer).unwrap().active
+                && *world.get::<Visibility>(officer).unwrap() == Visibility::Visible
+            {
+                replacement_arrived = true;
+                break;
+            }
+        }
+
+        assert!(
+            replacement_arrived,
+            "the replacement remains hidden after the 4.5-second response delay"
+        );
+        assert_eq!(world.get::<FootOfficer>(officer).unwrap().patrol_index, 0);
+        assert_eq!(world.resource::<WantedState>().level, 2);
     }
 }
