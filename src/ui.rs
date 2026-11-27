@@ -94,10 +94,12 @@ fn wanted_status(state: &str) -> String {
         .collect();
     let response = match level {
         0 => "патрули не разыскивают игрока",
-        1 => "патруль начинает автомобильное преследование",
-        2 => "патруль высаживает офицеров",
-        3..=5 => "скорость автомобильного преследования растёт",
-        _ => "максимальный уровень преследования",
+        1 => "автомобильный патруль начал погоню",
+        2 => "к погоне подключился пеший офицер",
+        3 => "офицер ускорился, патрули меняют тактику",
+        4 => "два офицера и усиленный автомобильный ответ",
+        5 => "офицеры ведут частую стрельбу по прямой видимости",
+        _ => "максимальная скорость и огневая мощь полиции",
     };
     format!("{mode}\nРОЗЫСК {level}/6 [{meter}] • {response}")
 }
@@ -242,14 +244,8 @@ mod tests {
 
     #[test]
     fn health_line_reports_a_visual_meter_and_damage_states() {
-        assert_eq!(
-            health_line(100.0),
-            "Здоровье: [██████████] 100%"
-        );
-        assert_eq!(
-            health_line(64.4),
-            "Здоровье: [██████░░░░] 64%"
-        );
+        assert_eq!(health_line(100.0), "Здоровье: [██████████] 100%");
+        assert_eq!(health_line(64.4), "Здоровье: [██████░░░░] 64%");
         assert!(health_line(20.0).contains("тяжело ранен"));
         assert!(health_line(0.0).contains("нужен новый заезд"));
         assert!(health_line(-5.0).contains("0%"));
@@ -294,9 +290,7 @@ mod tests {
         assert!(hud.contains("контрольная точка"));
         assert!(hud.contains("файл повреждён"));
         assert!(hud.contains("отсутствует"));
-        assert!(hud
-            .lines()
-            .all(|line| line.chars().count() <= HUD_MAX_LINE_CHARS));
+        assert!(hud.lines().all(|line| line.chars().count() <= HUD_MAX_LINE_CHARS));
     }
 
     #[test]
@@ -306,9 +300,7 @@ mod tests {
         let actual: String = wrapped.chars().filter(|character| *character != '\n').collect();
 
         assert_eq!(actual, word);
-        assert!(wrapped
-            .lines()
-            .all(|line| line.chars().count() <= HUD_MAX_LINE_CHARS));
+        assert!(wrapped.lines().all(|line| line.chars().count() <= HUD_MAX_LINE_CHARS));
     }
 
     #[test]
@@ -336,13 +328,24 @@ mod tests {
 
     #[test]
     fn wanted_levels_show_a_fixed_six_star_meter_and_distinct_pursuit() {
-        let one_star = wanted_status("ПЕШКОМ • розыск: ★");
-        let two_stars = wanted_status("ПЕШКОМ • розыск: ★★");
-        let six_stars = wanted_status("ПЕШКОМ • розыск: ★★★★★★");
+        let expected = [
+            "патрули не разыскивают игрока",
+            "автомобильный патруль начал погоню",
+            "к погоне подключился пеший офицер",
+            "офицер ускорился, патрули меняют тактику",
+            "два офицера и усиленный автомобильный ответ",
+            "офицеры ведут частую стрельбу по прямой видимости",
+            "максимальная скорость и огневая мощь полиции",
+        ];
+        for (level, response) in expected.iter().enumerate() {
+            let stars = "★".repeat(level);
+            let status = wanted_status(&format!("ПЕШКОМ • розыск: {stars}"));
+            assert!(status.contains(&format!("РОЗЫСК {level}/6")));
+            assert!(status.contains(response));
+        }
 
-        assert!(one_star.contains("РОЗЫСК 1/6 [★☆☆☆☆☆]"));
-        assert!(two_stars.contains("РОЗЫСК 2/6 [★★☆☆☆☆]"));
-        assert!(six_stars.contains("РОЗЫСК 6/6 [★★★★★★]"));
-        assert_ne!(one_star, two_stars);
+        assert!(wanted_status("ПЕШКОМ • розыск: ★").contains("[★☆☆☆☆☆]"));
+        assert!(wanted_status("ПЕШКОМ • розыск: ★★").contains("[★★☆☆☆☆]"));
+        assert!(wanted_status("ПЕШКОМ • розыск: ★★★★★★").contains("[★★★★★★]"));
     }
 }
