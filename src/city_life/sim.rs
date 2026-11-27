@@ -60,6 +60,47 @@ fn police_search_target(
     }
 }
 
+fn foot_officer_count(level: u8) -> usize {
+    match level {
+        0..=1 => 0,
+        2..=3 => 1,
+        _ => 2,
+    }
+}
+
+fn foot_officer_speed(level: u8) -> f32 {
+    match level {
+        0..=2 => OFFICER_SPEED,
+        3 => 5.8,
+        4 => 6.4,
+        5 => 7.0,
+        _ => 7.6,
+    }
+}
+
+fn police_shot_profile(level: u8) -> (f32, f32) {
+    match level {
+        0..=2 => (POLICE_SHOT_DAMAGE, POLICE_SHOT_COOLDOWN),
+        3 => (8.0, 1.15),
+        4 => (8.5, 1.05),
+        5 => (9.0, 1.0),
+        _ => (10.0, 0.9),
+    }
+}
+
+fn police_response_target(
+    player_position: Vec2,
+    last_seen: Option<Vec2>,
+    patrol_position: Vec2,
+    police_has_sight: bool,
+) -> Vec2 {
+    if police_has_sight {
+        player_position
+    } else {
+        last_seen.unwrap_or(patrol_position)
+    }
+}
+
 fn traffic_vehicle_body_at(position: Vec2, along_x: bool, direction: f32) -> Body {
     traffic_vehicle_body(
         &Transform::from_xyz(position.x, 0.48, position.y),
@@ -513,12 +554,19 @@ pub(super) fn simulate_city_life(
     }
 
     let police_has_sight = wanted.level > 0
-        && patrols.iter().any(|(transform, _)| {
+        && (patrols.iter().any(|(transform, _)| {
             police_line_of_sight_clear(
                 Vec2::new(transform.translation.x, transform.translation.z),
                 player_flat,
             )
-        });
+        }) || officers.iter().any(|(transform, officer, _)| {
+            officer.active
+                && officer.patrol_index < foot_officer_count(wanted.level)
+                && police_line_of_sight_clear(
+                    Vec2::new(transform.translation.x, transform.translation.z),
+                    player_flat,
+                )
+        }));
     wanted.tick(dt, player_incident);
     let search_position = if let Some(memory) = search_memory.as_deref_mut() {
         update_police_search_memory(
@@ -637,7 +685,7 @@ pub(super) fn simulate_city_life(
     for (officer_index, (mut transform, mut officer, mut visibility)) in
         (&mut officers).into_iter().enumerate()
     {
-        if wanted.level < 2 {
+        if wanted.level < 2 || officer.patrol_index >= foot_officer_count(wanted.level) {
             officer.active = false;
             officer_bodies[officer_index] = None;
             *visibility = Visibility::Hidden;
@@ -663,12 +711,23 @@ pub(super) fn simulate_city_life(
         *visibility = Visibility::Visible;
 
         let position = Vec2::new(transform.translation.x, transform.translation.z);
-        let to_player = player_flat - position;
-        let distance = to_player.length();
+        let patrol_position = updated_patrol_positions
+            .get(officer.patrol_index)
+            .copied()
+            .unwrap_or(player_flat);
+        let officer_target = police_response_target(
+            player_flat,
+            search_position,
+            patrol_position,
+            police_has_sight,
+        );
+        let to_target = officer_target - position;
+        let distance = to_target.length();
+        let speed = foot_officer_speed(wanted.level);
         let movement = if distance > OFFICER_STOP_DISTANCE {
-            to_player.normalize() * (OFFICER_SPEED * dt).min(distance - OFFICER_STOP_DISTANCE)
+            to_target.normalize() * (speed * dt).min(distance - OFFICER_STOP_DISTANCE)
         } else if distance < OFFICER_RETREAT_DISTANCE {
-            -to_player.normalize() * (OFFICER_SPEED * dt).min(OFFICER_RETREAT_DISTANCE - distance)
+            -to_target.normalize() * (speed * dt).min(OFFICER_RETREAT_DISTANCE - distance)
         } else {
             Vec2::ZERO
         };
@@ -687,7 +746,12 @@ pub(super) fn simulate_city_life(
         transform.translation.x = next.x;
         transform.translation.z = next.y;
         officer_bodies[officer_index] = Some(Body::person(next));
-        let facing = player_flat - next;
+        let facing_target = if police_has_sight {
+            player_flat
+        } else {
+            officer_target
+        };
+        let facing = facing_target - next;
         if facing.length_squared() > 1.0e-5 {
             transform.rotation = Quat::from_rotation_y(facing.x.atan2(facing.y));
         }
@@ -696,8 +760,9 @@ pub(super) fn simulate_city_life(
         let officer_distance = next.distance(player_flat);
         let clear_line = police_line_of_sight_clear(next, player_flat);
         if officer.shot_timer <= 0.0 && can_police_shoot(officer_distance, clear_line) {
-            damage_player(&mut probe, POLICE_SHOT_DAMAGE);
-            officer.shot_timer = POLICE_SHOT_COOLDOWN;
+            let (shot_damage, shot_cooldown) = police_shot_profile(wanted.level);
+            damage_player(&mut probe, shot_damage);
+            officer.shot_timer = shot_cooldown;
             shots_fired.push(officer.patrol_index);
         }
     }
@@ -849,6 +914,47 @@ mod tests {
         update_police_search_memory(&mut memory, 0, hidden_player, false, false, 0.016);
         assert_eq!(memory.last_seen, None);
         assert_eq!(memory.remaining, 0.0);
+    }
+
+    #[test]
+    fn higher_wanted_levels_deploy_and_strengthen_foot_officers() {
+        assert_eq!(foot_officer_count(1), 0);
+        assert_eq!(foot_officer_count(2), 1);
+        assert_eq!(foot_officer_count(3), 1);
+        assert_eq!(foot_officer_count(4), 2);
+        assert_eq!(foot_officer_count(6), 2);
+
+        let mut previous_speed = 0.0;
+        let mut previous_damage_rate = 0.0;
+        for level in 2..=6 {
+            let speed = foot_officer_speed(level);
+            let (damage, cooldown) = police_shot_profile(level);
+            assert!(speed > previous_speed);
+            assert!(cooldown > 0.0);
+            assert!(damage / cooldown > previous_damage_rate);
+            previous_speed = speed;
+            previous_damage_rate = damage / cooldown;
+        }
+    }
+
+    #[test]
+    fn foot_officers_search_last_seen_position_then_regroup() {
+        let player = Vec2::new(70.0, 40.0);
+        let last_seen = Vec2::new(12.0, -8.0);
+        let patrol = Vec2::new(-20.0, 14.0);
+
+        assert_eq!(
+            police_response_target(player, Some(last_seen), patrol, false),
+            last_seen
+        );
+        assert_eq!(
+            police_response_target(player, None, patrol, false),
+            patrol
+        );
+        assert_eq!(
+            police_response_target(player, Some(last_seen), patrol, true),
+            player
+        );
     }
 
     #[test]
