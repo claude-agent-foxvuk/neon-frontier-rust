@@ -60,6 +60,16 @@ fn police_search_target(
     }
 }
 
+const POLICE_OFFICER_DISEMBARK_DISTANCE: f32 = 24.0;
+
+fn foot_officer_can_deploy(wanted_level: u8, patrol_position: Vec2, player_position: Vec2) -> bool {
+    wanted_level >= 2
+        && patrol_position.is_finite()
+        && player_position.is_finite()
+        && patrol_position.distance_squared(player_position)
+            <= POLICE_OFFICER_DISEMBARK_DISTANCE * POLICE_OFFICER_DISEMBARK_DISTANCE
+}
+
 fn foot_officer_count(level: u8) -> usize {
     match level {
         0..=1 => 0,
@@ -696,6 +706,11 @@ pub(super) fn simulate_city_life(
                 .get(officer.patrol_index)
                 .copied()
                 .unwrap_or(player_flat);
+            if !foot_officer_can_deploy(wanted.level, patrol_position, player_flat) {
+                officer_bodies[officer_index] = None;
+                *visibility = Visibility::Hidden;
+                continue;
+            }
             let side = if officer.patrol_index % 2 == 0 {
                 Vec2::X
             } else {
@@ -855,6 +870,114 @@ mod tests {
     use super::*;
 
     #[test]
+    fn foot_officers_deploy_only_after_a_patrol_closes_to_standoff_range() {
+        assert!(!foot_officer_can_deploy(1, Vec2::ZERO, Vec2::ZERO));
+        assert!(!foot_officer_can_deploy(
+            2,
+            Vec2::new(POLICE_OFFICER_DISEMBARK_DISTANCE + 0.01, 0.0),
+            Vec2::ZERO,
+        ));
+        assert!(foot_officer_can_deploy(
+            2,
+            Vec2::new(POLICE_OFFICER_DISEMBARK_DISTANCE, 0.0),
+            Vec2::ZERO,
+        ));
+        assert!(!foot_officer_can_deploy(
+            2,
+            Vec2::new(f32::NAN, 0.0),
+            Vec2::ZERO,
+        ));
+    }
+
+    #[test]
+    fn live_patrol_deploys_a_foot_officer_only_after_approaching_the_player() {
+        use bevy::ecs::system::RunSystemOnce;
+        use std::time::Duration;
+
+        let mut world = World::new();
+        let mut time = Time::<()>::default();
+        time.advance_by(Duration::from_millis(16));
+        world.insert_resource(time);
+        world.insert_resource(PlayerProbe {
+            position: Vec3::new(0.0, 0.9, 0.0),
+            vehicle_position: Vec3::new(100.0, 0.65, 100.0),
+            forward: Vec3::NEG_Z,
+            in_vehicle: false,
+            punch: false,
+            health: 100.0,
+        });
+        let mut wanted = WantedState::default();
+        wanted.level = 2;
+        wanted.decay_timer = 120.0;
+        world.insert_resource(wanted);
+        world.init_resource::<TrafficBodies>();
+        world.init_resource::<WorldState>();
+        world.init_resource::<WorldRestore>();
+
+        let patrol = world
+            .spawn((
+                Transform::from_xyz(40.0, 0.48, 0.0),
+                PolicePatrol {
+                    home: Vec2::new(40.0, 0.0),
+                    phase: 0.0,
+                },
+            ))
+            .id();
+        let officer = world
+            .spawn((
+                Transform::from_xyz(42.0, 0.82, 0.0),
+                FootOfficer {
+                    patrol_index: 0,
+                    active: false,
+                    shot_timer: 120.0,
+                },
+                Visibility::Hidden,
+            ))
+            .id();
+
+        world
+            .run_system_once(simulate_city_life)
+            .expect("a distant patrol approaches before deploying its officer");
+        assert!(!world.get::<FootOfficer>(officer).unwrap().active);
+        assert_eq!(*world.get::<Visibility>(officer).unwrap(), Visibility::Hidden);
+
+        world.get_mut::<Transform>(patrol).unwrap().translation = Vec3::new(22.0, 0.48, 0.0);
+        world
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(16));
+        world
+            .run_system_once(simulate_city_life)
+            .expect("a nearby stopped patrol deploys its officer on foot");
+
+        assert!(world.get::<FootOfficer>(officer).unwrap().active);
+        assert_eq!(*world.get::<Visibility>(officer).unwrap(), Visibility::Visible);
+        let patrol_transform = world.get::<Transform>(patrol).unwrap();
+        let patrol_body = vehicle_body_from_forward(
+            patrol_transform.translation,
+            patrol_transform.rotation * Vec3::Z,
+        );
+        assert!(!bodies_overlap(&patrol_body, &Body::person(Vec2::ZERO)));
+
+        for _ in 0..140 {
+            world
+                .resource_mut::<Time<()>>()
+                .advance_by(Duration::from_millis(16));
+            world
+                .run_system_once(simulate_city_life)
+                .expect("police patrol keeps a safe standoff while its officer engages on foot");
+        }
+        let patrol_transform = world.get::<Transform>(patrol).unwrap();
+        let patrol_position = Vec2::new(patrol_transform.translation.x, patrol_transform.translation.z);
+        assert!(patrol_position.distance(Vec2::ZERO) >= 9.0 - 1.0e-3);
+        assert!(patrol_position.distance(Vec2::ZERO) < 9.2);
+        let patrol_body = vehicle_body_from_forward(
+            patrol_transform.translation,
+            patrol_transform.rotation * Vec3::Z,
+        );
+        assert!(!bodies_overlap(&patrol_body, &Body::person(Vec2::ZERO)));
+    }
+
+    #[test]
     fn city_life_stays_frozen_while_the_main_menu_is_open() {
         use bevy::ecs::system::RunSystemOnce;
         use std::time::Duration;
@@ -931,14 +1054,7 @@ mod tests {
         assert!(local_search.distance(patrol_without_memory) <= tactics.search_radius + 1.0e-5);
         assert!(local_search.distance(hidden_player) > 1.0);
 
-        update_police_search_memory(
-            &mut memory,
-            3,
-            hidden_player,
-            false,
-            true,
-            0.016,
-        );
+        update_police_search_memory(&mut memory, 3, hidden_player, false, true, 0.016);
         assert_eq!(memory.last_seen, Some(hidden_player));
         update_police_search_memory(
             &mut memory,
@@ -1006,10 +1122,8 @@ mod tests {
             &parallel_lane,
         ));
 
-        let crossing_vehicle = Body::vehicle(
-            Vec2::new(0.0, 1.8),
-            std::f32::consts::FRAC_PI_2,
-        );
+        let crossing_vehicle =
+            Body::vehicle(Vec2::new(0.0, 1.8), std::f32::consts::FRAC_PI_2);
         assert!(traffic_car_overlaps_body(
             Vec2::ZERO,
             true,
