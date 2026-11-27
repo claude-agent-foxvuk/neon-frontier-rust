@@ -23,6 +23,7 @@ mod base {
     use sim::simulate_city_life;
 
     include!("city_life/core.rs");
+    include!("city_life/officer_reinforcements.rs");
 
     const OFFICER_RETURN_DISTANCE: f32 = 42.0;
     const OFFICER_BOARD_DISTANCE: f32 = 3.0;
@@ -113,26 +114,34 @@ mod base {
     }
 
     pub(super) fn add_followup_systems(app: &mut App) {
-        app.add_systems(
-            Update,
-            super::city_events::city_event_system
-                .after(simulate_city_life)
-                .after(crate::controls),
-        )
-        .add_systems(
-            Update,
-            turn_traffic_at_world_edge.after(simulate_city_life),
-        )
-        .add_systems(
-            Update,
-            return_foot_officers.after(simulate_city_life),
-        )
-        .add_systems(
-            Update,
-            super::police_reserve::update_reserve_cruiser_visibility
-                .after(simulate_city_life)
-                .after(crate::controls),
-        );
+        app.init_resource::<OfficerReinforcementState>()
+            .add_systems(
+                Update,
+                (advance_officer_reinforcements, register_officer_casualties)
+                    .chain()
+                    .after(crate::controls)
+                    .before(simulate_city_life),
+            )
+            .add_systems(
+                Update,
+                super::city_events::city_event_system
+                    .after(simulate_city_life)
+                    .after(crate::controls),
+            )
+            .add_systems(
+                Update,
+                turn_traffic_at_world_edge.after(simulate_city_life),
+            )
+            .add_systems(
+                Update,
+                return_foot_officers.after(simulate_city_life),
+            )
+            .add_systems(
+                Update,
+                super::police_reserve::update_reserve_cruiser_visibility
+                    .after(simulate_city_life)
+                    .after(crate::controls),
+            );
     }
 
     #[cfg(test)]
