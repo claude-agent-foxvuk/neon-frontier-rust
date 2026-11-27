@@ -9,7 +9,7 @@ mod traffic_avoidance;
 use traffic_avoidance::choose_real_width_traffic_offset as choose_safe_traffic_offset;
 
 mod base {
-    use super::*;
+    use super::simulate_city_life;
 
     include!("city_life/core.rs");
 
@@ -61,5 +61,37 @@ impl Plugin for CityLifePlugin {
     fn build(&self, app: &mut App) {
         <base::CityLifePlugin as Plugin>::build(&base::CityLifePlugin, app);
         app.add_systems(PreUpdate, menu_clock::pause_menu_clock);
+    }
+}
+
+#[cfg(test)]
+mod plugin_tests {
+    use super::*;
+    use bevy::time::Virtual;
+    use std::time::Duration;
+
+    #[test]
+    fn city_life_plugin_pauses_menu_clock_and_resumes_after_start() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Virtual>::default());
+        app.insert_resource(Time::<()>::default());
+        app.insert_resource(crate::Game::default());
+        app.add_plugins(CityLifePlugin);
+
+        app.world_mut()
+            .resource_mut::<Time<Virtual>>()
+            .advance_by(Duration::from_millis(16));
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(16));
+        app.world_mut().run_schedule(PreUpdate);
+
+        assert!(app.world().resource::<Time<Virtual>>().is_paused());
+        assert_eq!(app.world().resource::<Time<Virtual>>().delta(), Duration::ZERO);
+        assert_eq!(app.world().resource::<Time<()>>().delta(), Duration::ZERO);
+
+        app.world_mut().resource_mut::<crate::Game>().started = true;
+        app.world_mut().run_schedule(PreUpdate);
+        assert!(!app.world().resource::<Time<Virtual>>().is_paused());
     }
 }
