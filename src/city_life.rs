@@ -4,6 +4,7 @@ mod city_events;
 mod city_neon;
 mod graphics_settings;
 mod menu_clock;
+mod police_reserve;
 
 mod base {
     use super::*;
@@ -73,7 +74,13 @@ impl Plugin for CityLifePlugin {
         app.init_resource::<city_events::CityEvents>()
             .init_resource::<graphics_settings::GraphicsProfile>()
             .add_systems(PreUpdate, menu_clock::pause_menu_clock)
-            .add_systems(Startup, city_neon::spawn_city_neon)
+            .add_systems(
+                Startup,
+                (
+                    city_neon::spawn_city_neon,
+                    police_reserve::spawn_reserve_cruisers,
+                ),
+            )
             .add_systems(
                 Update,
                 graphics_settings::toggle_graphics_profile
@@ -89,6 +96,12 @@ impl Plugin for CityLifePlugin {
             .add_systems(
                 Update,
                 base::turn_traffic_at_world_edge.after(base::simulate_city_life),
+            )
+            .add_systems(
+                Update,
+                police_reserve::update_reserve_cruiser_visibility
+                    .after(base::simulate_city_life)
+                    .after(crate::controls),
             );
     }
 }
