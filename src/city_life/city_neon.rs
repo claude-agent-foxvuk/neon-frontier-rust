@@ -2,6 +2,8 @@ use bevy::prelude::*;
 
 const ROAD_SPACING: f32 = 48.0;
 const BUILDING_HALF: f32 = 14.0;
+const PARK_TILE_SIZE: f32 = 3.8;
+const PARK_CORNER_OFFSET: f32 = 8.0;
 
 #[derive(Clone, Copy)]
 struct NeonDetail {
@@ -44,6 +46,100 @@ fn city_neon_details() -> Vec<NeonDetail> {
     details
 }
 
+fn central_park_centers() -> [Vec2; 4] {
+    [
+        Vec2::new(-PARK_CORNER_OFFSET, -PARK_CORNER_OFFSET),
+        Vec2::new(-PARK_CORNER_OFFSET, PARK_CORNER_OFFSET),
+        Vec2::new(PARK_CORNER_OFFSET, -PARK_CORNER_OFFSET),
+        Vec2::new(PARK_CORNER_OFFSET, PARK_CORNER_OFFSET),
+    ]
+}
+
+fn spawn_central_park(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
+    let lawn_mesh = meshes.add(Cuboid::new(PARK_TILE_SIZE, 0.12, PARK_TILE_SIZE));
+    let curb_mesh = meshes.add(Cuboid::new(PARK_TILE_SIZE, 0.18, 0.16));
+    let trunk_mesh = meshes.add(Cylinder::new(0.22, 1.8));
+    let canopy_mesh = meshes.add(Sphere::new(1.0));
+    let bench_seat_mesh = meshes.add(Cuboid::new(1.4, 0.26, 0.42));
+    let bench_back_mesh = meshes.add(Cuboid::new(1.4, 0.7, 0.14));
+    let lawn_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.12, 0.34, 0.20),
+        perceptual_roughness: 0.94,
+        ..default()
+    });
+    let curb_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.42, 0.48, 0.48),
+        perceptual_roughness: 0.82,
+        ..default()
+    });
+    let trunk_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.24, 0.13, 0.07),
+        perceptual_roughness: 0.9,
+        ..default()
+    });
+    let canopy_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.12, 0.38, 0.21),
+        perceptual_roughness: 0.88,
+        ..default()
+    });
+    let bench_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.48, 0.27, 0.12),
+        perceptual_roughness: 0.78,
+        ..default()
+    });
+
+    for center in central_park_centers() {
+        commands.spawn((
+            Mesh3d(lawn_mesh.clone()),
+            MeshMaterial3d(lawn_material.clone()),
+            Transform::from_xyz(center.x, 0.12, center.y),
+        ));
+        for (offset, rotation) in [
+            (Vec3::new(0.0, 0.24, -1.82), Quat::IDENTITY),
+            (Vec3::new(0.0, 0.24, 1.82), Quat::IDENTITY),
+            (
+                Vec3::new(-1.82, 0.24, 0.0),
+                Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+            ),
+            (
+                Vec3::new(1.82, 0.24, 0.0),
+                Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+            ),
+        ] {
+            commands.spawn((
+                Mesh3d(curb_mesh.clone()),
+                MeshMaterial3d(curb_material.clone()),
+                Transform::from_translation(Vec3::new(center.x, 0.0, center.y) + offset)
+                    .with_rotation(rotation),
+            ));
+        }
+        commands.spawn((
+            Mesh3d(trunk_mesh.clone()),
+            MeshMaterial3d(trunk_material.clone()),
+            Transform::from_xyz(center.x, 1.08, center.y),
+        ));
+        commands.spawn((
+            Mesh3d(canopy_mesh.clone()),
+            MeshMaterial3d(canopy_material.clone()),
+            Transform::from_xyz(center.x, 2.45, center.y),
+        ));
+        commands.spawn((
+            Mesh3d(bench_seat_mesh.clone()),
+            MeshMaterial3d(bench_material.clone()),
+            Transform::from_xyz(center.x + 1.0, 0.34, center.y),
+        ));
+        commands.spawn((
+            Mesh3d(bench_back_mesh.clone()),
+            MeshMaterial3d(bench_material.clone()),
+            Transform::from_xyz(center.x + 1.0, 0.78, center.y + 0.2),
+        ));
+    }
+}
+
 pub(super) fn spawn_city_neon(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -76,6 +172,7 @@ pub(super) fn spawn_city_neon(
             Transform::from_translation(detail.position).with_rotation(detail.rotation),
         ));
     }
+    spawn_central_park(&mut commands, &mut meshes, &mut materials);
 }
 
 #[cfg(test)]
@@ -100,6 +197,22 @@ mod tests {
             } else {
                 assert!(detail.position.y > 8.0);
             }
+        }
+    }
+
+    #[test]
+    fn central_park_planters_fit_in_the_open_corners_of_the_crossroads() {
+        let road_half_width = 5.5;
+        let building_edge = 10.0;
+        let half_tile = PARK_TILE_SIZE * 0.5;
+        let centers = central_park_centers();
+
+        assert_eq!(centers.len(), 4);
+        for center in centers {
+            assert!((center.x.abs() - half_tile) > road_half_width);
+            assert!((center.y.abs() - half_tile) > road_half_width);
+            assert!(center.x.abs() + half_tile < building_edge);
+            assert!(center.y.abs() + half_tile < building_edge);
         }
     }
 }
