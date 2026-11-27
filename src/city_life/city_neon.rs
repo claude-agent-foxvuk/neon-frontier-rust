@@ -2,8 +2,9 @@ use bevy::prelude::*;
 
 const ROAD_SPACING: f32 = 48.0;
 const BUILDING_HALF: f32 = 14.0;
-const PARK_TILE_SIZE: f32 = 3.8;
-const PARK_CORNER_OFFSET: f32 = 8.0;
+const PARK_TILE_SIZE: f32 = 4.2;
+const PARK_CORNER_OFFSET: f32 = 7.75;
+const PARK_PATH_WIDTH: f32 = 0.34;
 
 #[derive(Clone, Copy)]
 struct NeonDetail {
@@ -62,10 +63,13 @@ fn spawn_central_park(
 ) {
     let lawn_mesh = meshes.add(Cuboid::new(PARK_TILE_SIZE, 0.12, PARK_TILE_SIZE));
     let curb_mesh = meshes.add(Cuboid::new(PARK_TILE_SIZE, 0.18, 0.16));
+    let path_x_mesh = meshes.add(Cuboid::new(PARK_TILE_SIZE - 0.72, 0.06, PARK_PATH_WIDTH));
+    let path_z_mesh = meshes.add(Cuboid::new(PARK_PATH_WIDTH, 0.06, PARK_TILE_SIZE - 0.72));
     let trunk_mesh = meshes.add(Cylinder::new(0.22, 1.8));
     let canopy_mesh = meshes.add(Sphere::new(1.0));
-    let bench_seat_mesh = meshes.add(Cuboid::new(1.4, 0.26, 0.42));
-    let bench_back_mesh = meshes.add(Cuboid::new(1.4, 0.7, 0.14));
+    let bench_seat_mesh = meshes.add(Cuboid::new(1.35, 0.26, 0.42));
+    let bench_back_mesh = meshes.add(Cuboid::new(1.35, 0.7, 0.14));
+    let flower_mesh = meshes.add(Sphere::new(0.16));
     let lawn_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.12, 0.34, 0.20),
         perceptual_roughness: 0.94,
@@ -74,6 +78,11 @@ fn spawn_central_park(
     let curb_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.42, 0.48, 0.48),
         perceptual_roughness: 0.82,
+        ..default()
+    });
+    let path_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.58, 0.57, 0.49),
+        perceptual_roughness: 0.9,
         ..default()
     });
     let trunk_material = materials.add(StandardMaterial {
@@ -91,22 +100,47 @@ fn spawn_central_park(
         perceptual_roughness: 0.78,
         ..default()
     });
+    let flower_materials = [
+        materials.add(Color::srgb(0.92, 0.30, 0.39)),
+        materials.add(Color::srgb(0.98, 0.68, 0.20)),
+        materials.add(Color::srgb(0.55, 0.34, 0.82)),
+    ];
 
-    for center in central_park_centers() {
+    for (park_index, center) in central_park_centers().into_iter().enumerate() {
         commands.spawn((
             Mesh3d(lawn_mesh.clone()),
             MeshMaterial3d(lawn_material.clone()),
             Transform::from_xyz(center.x, 0.12, center.y),
         ));
+        commands.spawn((
+            Mesh3d(path_x_mesh.clone()),
+            MeshMaterial3d(path_material.clone()),
+            Transform::from_xyz(center.x, 0.22, center.y - 1.52),
+        ));
+        commands.spawn((
+            Mesh3d(path_x_mesh.clone()),
+            MeshMaterial3d(path_material.clone()),
+            Transform::from_xyz(center.x, 0.22, center.y + 1.52),
+        ));
+        commands.spawn((
+            Mesh3d(path_z_mesh.clone()),
+            MeshMaterial3d(path_material.clone()),
+            Transform::from_xyz(center.x - 1.52, 0.22, center.y),
+        ));
+        commands.spawn((
+            Mesh3d(path_z_mesh.clone()),
+            MeshMaterial3d(path_material.clone()),
+            Transform::from_xyz(center.x + 1.52, 0.22, center.y),
+        ));
         for (offset, rotation) in [
-            (Vec3::new(0.0, 0.24, -1.82), Quat::IDENTITY),
-            (Vec3::new(0.0, 0.24, 1.82), Quat::IDENTITY),
+            (Vec3::new(0.0, 0.24, -2.02), Quat::IDENTITY),
+            (Vec3::new(0.0, 0.24, 2.02), Quat::IDENTITY),
             (
-                Vec3::new(-1.82, 0.24, 0.0),
+                Vec3::new(-2.02, 0.24, 0.0),
                 Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
             ),
             (
-                Vec3::new(1.82, 0.24, 0.0),
+                Vec3::new(2.02, 0.24, 0.0),
                 Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
             ),
         ] {
@@ -127,16 +161,41 @@ fn spawn_central_park(
             MeshMaterial3d(canopy_material.clone()),
             Transform::from_xyz(center.x, 2.45, center.y),
         ));
-        commands.spawn((
-            Mesh3d(bench_seat_mesh.clone()),
-            MeshMaterial3d(bench_material.clone()),
-            Transform::from_xyz(center.x + 1.0, 0.34, center.y),
-        ));
-        commands.spawn((
-            Mesh3d(bench_back_mesh.clone()),
-            MeshMaterial3d(bench_material.clone()),
-            Transform::from_xyz(center.x + 1.0, 0.78, center.y + 0.2),
-        ));
+        for (side, yaw) in [
+            (-1.0, std::f32::consts::FRAC_PI_2),
+            (1.0, -std::f32::consts::FRAC_PI_2),
+        ] {
+            let bench_position = Vec3::new(center.x + side * 1.28, 0.34, center.y);
+            let bench_rotation = Quat::from_rotation_y(yaw);
+            commands.spawn((
+                Mesh3d(bench_seat_mesh.clone()),
+                MeshMaterial3d(bench_material.clone()),
+                Transform::from_translation(bench_position).with_rotation(bench_rotation),
+            ));
+            commands.spawn((
+                Mesh3d(bench_back_mesh.clone()),
+                MeshMaterial3d(bench_material.clone()),
+                Transform::from_translation(bench_position + Vec3::new(0.0, 0.44, 0.0))
+                    .with_rotation(bench_rotation),
+            ));
+        }
+        for (flower_index, (x, z)) in [
+            (-1.10, -1.10),
+            (-1.10, 1.10),
+            (1.10, -1.10),
+            (1.10, 1.10),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let color = (park_index + flower_index) % flower_materials.len();
+            commands.spawn((
+                Mesh3d(flower_mesh.clone()),
+                MeshMaterial3d(flower_materials[color].clone()),
+                Transform::from_xyz(center.x + x, 0.36, center.y + z)
+                    .with_scale(Vec3::new(1.0, 0.55, 1.0)),
+            ));
+        }
     }
 }
 
@@ -201,18 +260,21 @@ mod tests {
     }
 
     #[test]
-    fn central_park_planters_fit_in_the_open_corners_of_the_crossroads() {
+    fn park_paths_and_lawns_fit_in_the_open_corners_of_the_crossroads() {
         let road_half_width = 5.5;
         let building_edge = 10.0;
         let half_tile = PARK_TILE_SIZE * 0.5;
         let centers = central_park_centers();
 
         assert_eq!(centers.len(), 4);
+        assert!(PARK_PATH_WIDTH > 0.0 && PARK_PATH_WIDTH < PARK_TILE_SIZE);
         for center in centers {
-            assert!((center.x.abs() - half_tile) > road_half_width);
-            assert!((center.y.abs() - half_tile) > road_half_width);
+            assert!(center.x.abs() - half_tile > road_half_width);
+            assert!(center.y.abs() - half_tile > road_half_width);
             assert!(center.x.abs() + half_tile < building_edge);
             assert!(center.y.abs() + half_tile < building_edge);
+            assert!(1.52 + (PARK_TILE_SIZE - 0.72) * 0.5 < half_tile);
+            assert!(2.02 + 0.08 < half_tile);
         }
     }
 }
