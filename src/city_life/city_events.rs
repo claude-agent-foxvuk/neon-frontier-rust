@@ -3,6 +3,8 @@ use bevy::prelude::*;
 use super::{PlayerProbe, TrafficBodies, WantedState};
 
 const TRAFFIC_TARGET_SECONDS: f32 = 20.0;
+const SPEED_TARGET_SECONDS: f32 = 12.0;
+const SPEED_MIN_METERS_PER_SECOND: f32 = 12.0;
 const EVENT_LIMIT_SECONDS: f32 = 90.0;
 const EVENT_COOLDOWN_SECONDS: f32 = 60.0;
 
@@ -10,6 +12,7 @@ const EVENT_COOLDOWN_SECONDS: f32 = 60.0;
 enum EventKind {
     EscapePolice,
     TrafficDrive,
+    SpeedDrive,
 }
 
 struct ActiveEvent {
@@ -51,6 +54,8 @@ fn advance_event(state: &mut CityEvents, input: EventInput, dt: f32) -> Option<E
         let failed = event.remaining <= 0.0
             || input.health <= 0.0
             || (kind == EventKind::TrafficDrive
+                && (!input.driving || input.wanted > 0 || input.health < event.initial_health))
+            || (kind == EventKind::SpeedDrive
                 && (!input.driving || input.wanted > 0 || input.health < event.initial_health));
         let completed = match kind {
             EventKind::EscapePolice => input.wanted == 0,
@@ -59,6 +64,12 @@ fn advance_event(state: &mut CityEvents, input: EventInput, dt: f32) -> Option<E
                     event.progress += dt;
                 }
                 event.progress >= TRAFFIC_TARGET_SECONDS
+            }
+            EventKind::SpeedDrive => {
+                if input.speed.abs() >= SPEED_MIN_METERS_PER_SECOND && input.near_traffic {
+                    event.progress += dt;
+                }
+                event.progress >= SPEED_TARGET_SECONDS
             }
         };
         if failed || completed {
@@ -78,6 +89,12 @@ fn advance_event(state: &mut CityEvents, input: EventInput, dt: f32) -> Option<E
     }
     let kind = if input.wanted >= 2 {
         Some(EventKind::EscapePolice)
+    } else if input.wanted == 0
+        && input.driving
+        && input.speed.abs() >= SPEED_MIN_METERS_PER_SECOND
+        && input.near_traffic
+    {
+        Some(EventKind::SpeedDrive)
     } else if input.wanted == 0 && input.driving && input.speed.abs() >= 4.0 && input.near_traffic {
         Some(EventKind::TrafficDrive)
     } else {
@@ -103,6 +120,10 @@ fn active_event_notice(state: &CityEvents) -> Option<String> {
             "Событие: чистая езда {}/20 с • осталось {remaining} с",
             event.progress.floor() as u32,
         )),
+        EventKind::SpeedDrive => Some(format!(
+            "Событие: скоростная езда у трафика {}/12 с • осталось {remaining} с",
+            event.progress.floor() as u32,
+        )),
     }
 }
 
@@ -115,6 +136,11 @@ fn apply_completion_reward(health: &mut f32) -> String {
     } else {
         "Событие выполнено: здоровье уже полное".to_string()
     }
+}
+
+fn apply_speed_reward(credits: &mut u32) -> String {
+    *credits = credits.saturating_add(100);
+    "Событие выполнено: +100 кредитов".to_string()
 }
 
 pub(super) fn city_event_system(
@@ -147,6 +173,12 @@ pub(super) fn city_event_system(
             }
             EventSignal::Started(EventKind::TrafficDrive) => {
                 "Событие: проедь 20 секунд без ранений и розыска".to_string()
+            }
+            EventSignal::Started(EventKind::SpeedDrive) => {
+                "Событие: продержись 12 секунд на скорости у трафика".to_string()
+            }
+            EventSignal::Completed(EventKind::SpeedDrive) => {
+                apply_speed_reward(&mut game.credits)
             }
             EventSignal::Completed(_) => apply_completion_reward(&mut probe.health),
             EventSignal::Failed(_) => "Событие не выполнено".to_string(),
@@ -185,6 +217,57 @@ mod tests {
             Some(EventSignal::Completed(EventKind::TrafficDrive))
         );
         assert_eq!(advance_event(&mut state, input(), 1.0), None);
+    }
+
+    #[test]
+    fn speed_event_requires_clean_fast_driving_near_traffic_and_rewards_credits() {
+        let mut state = CityEvents::default();
+        let mut fast = input();
+        fast.speed = 14.0;
+        assert_eq!(
+            advance_event(&mut state, fast, 0.1),
+            Some(EventSignal::Started(EventKind::SpeedDrive))
+        );
+        assert_eq!(
+            active_event_notice(&state).as_deref(),
+            Some("Событие: скоростная езда у трафика 0/12 с • осталось 90 с")
+        );
+
+        let mut outside_traffic = fast;
+        outside_traffic.near_traffic = false;
+        assert_eq!(advance_event(&mut state, outside_traffic, 5.0), None);
+        assert!(active_event_notice(&state)
+            .unwrap()
+            .contains("0/12 с • осталось 85 с"));
+        assert_eq!(advance_event(&mut state, fast, 11.9), None);
+        assert_eq!(
+            advance_event(&mut state, fast, 0.1),
+            Some(EventSignal::Completed(EventKind::SpeedDrive))
+        );
+
+        let mut credits = 200;
+        assert_eq!(apply_speed_reward(&mut credits), "Событие выполнено: +100 кредитов");
+        assert_eq!(credits, 300);
+    }
+
+    #[test]
+    fn speed_event_fails_on_damage_wanted_level_or_leaving_the_car() {
+        for change in 0..3 {
+            let mut state = CityEvents::default();
+            let mut fast = input();
+            fast.speed = 14.0;
+            advance_event(&mut state, fast, 0.1);
+            let mut next = fast;
+            match change {
+                0 => next.health = 79.0,
+                1 => next.wanted = 1,
+                _ => next.driving = false,
+            }
+            assert_eq!(
+                advance_event(&mut state, next, 0.1),
+                Some(EventSignal::Failed(EventKind::SpeedDrive))
+            );
+        }
     }
 
     #[test]
