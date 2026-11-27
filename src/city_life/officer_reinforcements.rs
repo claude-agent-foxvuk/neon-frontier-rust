@@ -176,6 +176,7 @@ fn register_officer_casualties(
 #[cfg(test)]
 mod officer_reinforcement_tests {
     use super::*;
+    use super::sim::PoliceSearchMemory;
 
     #[test]
     fn v1_officer_timer_marker_is_only_a_hidden_casualty() {
