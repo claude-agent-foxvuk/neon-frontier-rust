@@ -152,7 +152,7 @@ pub(super) fn spawn_city_neon(
         (Color::srgb(0.92, 0.16, 0.55), LinearRgba::rgb(4.0, 0.15, 1.7)),
         (Color::srgb(1.0, 0.62, 0.13), LinearRgba::rgb(4.0, 1.7, 0.1)),
     ];
-    let materials: Vec<_> = colors
+    let neon_materials: Vec<_> = colors
         .into_iter()
         .map(|(base_color, emissive)| {
             materials.add(StandardMaterial {
@@ -168,7 +168,7 @@ pub(super) fn spawn_city_neon(
         let mesh = if detail.sign { &sign_strip } else { &roof_strip };
         commands.spawn((
             Mesh3d(mesh.clone()),
-            MeshMaterial3d(materials[detail.color].clone()),
+            MeshMaterial3d(neon_materials[detail.color].clone()),
             Transform::from_translation(detail.position).with_rotation(detail.rotation),
         ));
     }
