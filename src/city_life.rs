@@ -14,6 +14,7 @@ mod base {
     #[path = "../traffic_avoidance.rs"]
     mod traffic_avoidance;
     use traffic_avoidance::choose_real_width_traffic_offset as choose_safe_traffic_offset;
+    pub(super) use traffic_avoidance::turn_traffic_at_world_edge;
 
     #[path = "../sim.rs"]
     mod sim;
@@ -76,6 +77,10 @@ impl Plugin for CityLifePlugin {
                 city_events::city_event_system
                     .after(base::simulate_city_life)
                     .after(crate::controls),
+            )
+            .add_systems(
+                Update,
+                base::turn_traffic_at_world_edge.after(base::simulate_city_life),
             );
     }
 }
