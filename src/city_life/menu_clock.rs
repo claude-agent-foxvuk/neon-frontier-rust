@@ -10,8 +10,8 @@ pub(super) fn pause_menu_clock(
         if !virtual_time.is_paused() {
             virtual_time.pause();
         }
-        virtual_time.update_with_duration(Duration::ZERO);
-        default_time.update_with_duration(Duration::ZERO);
+        virtual_time.advance_by(Duration::ZERO);
+        default_time.advance_by(Duration::ZERO);
     } else if virtual_time.is_paused() {
         virtual_time.unpause();
     }
