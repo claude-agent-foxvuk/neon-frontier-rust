@@ -7,4 +7,4 @@
 - [ ] После каждого переноса сверять структуру `src`, обновлять ссылки и повторно запускать форматирование, тесты и Windows workflow.
 
 ## Уже разложено по модулям
-Код содержит `src/city_life/{core,helpers,sim}.rs`, отдельные наборы регрессий, а также модули `physics`, `procedural`, `save` и `ui`. Не создавать `MUST_HAVE.md`; не менять формат `NEON_FRONTIER_SAVE_V1`.
+Код содержит `src/city_life/{core,helpers,menu_clock,sim}.rs`, отдельные наборы регрессий, а также модули `physics`, `procedural`, `save` и `ui`. Не создавать `MUST_HAVE.md`; не менять формат `NEON_FRONTIER_SAVE_V1`.
