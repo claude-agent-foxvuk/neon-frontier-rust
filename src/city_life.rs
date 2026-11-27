@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+mod city_neon;
 mod helpers;
 use helpers::*;
 mod menu_clock;
@@ -60,7 +61,8 @@ pub struct CityLifePlugin;
 impl Plugin for CityLifePlugin {
     fn build(&self, app: &mut App) {
         <base::CityLifePlugin as Plugin>::build(&base::CityLifePlugin, app);
-        app.add_systems(PreUpdate, menu_clock::pause_menu_clock);
+        app.add_systems(PreUpdate, menu_clock::pause_menu_clock)
+            .add_systems(Startup, city_neon::spawn_city_neon);
     }
 }
 
