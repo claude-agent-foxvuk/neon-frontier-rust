@@ -242,7 +242,7 @@ pub(super) fn simulate_city_life(
     >,
 ) {
     let dt = time.delta_secs().min(0.05);
-    if dt <= 0.0 {
+    if dt <= 0.0 || game.as_ref().is_some_and(|game| !game.started) {
         return;
     }
     if let Some(snapshot) = restore.0.take() {
@@ -853,6 +853,45 @@ pub(super) fn simulate_city_life(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn city_life_stays_frozen_while_the_main_menu_is_open() {
+        use bevy::ecs::system::RunSystemOnce;
+        use std::time::Duration;
+
+        let mut world = World::new();
+        let mut time = Time::<()>::default();
+        time.advance_by(Duration::from_millis(16));
+        world.insert_resource(time);
+        world.insert_resource(crate::Game::default());
+        world.init_resource::<PlayerProbe>();
+        world.init_resource::<TrafficBodies>();
+        world.init_resource::<WantedState>();
+        world.init_resource::<WorldState>();
+        world.init_resource::<WorldRestore>();
+
+        let car = world
+            .spawn((
+                Transform::from_xyz(-40.0, 0.48, 0.0),
+                TrafficCar {
+                    speed: 6.0,
+                    direction: 1.0,
+                    along_x: true,
+                    stop_timer: 0.0,
+                    lane_offset: 0.0,
+                    avoid_offset: 0.0,
+                },
+            ))
+            .id();
+        let start = world.get::<Transform>(car).unwrap().translation;
+
+        world
+            .run_system_once(simulate_city_life)
+            .expect("city simulation stays idle in the main menu");
+
+        assert_eq!(world.get::<Transform>(car).unwrap().translation, start);
+        assert!(world.resource::<WorldState>().snapshot.traffic.is_empty());
+    }
 
     #[test]
     fn police_remembers_and_searches_the_last_visible_player_position() {
