@@ -92,6 +92,17 @@ fn advance_event(state: &mut CityEvents, input: EventInput, dt: f32) -> Option<E
     Some(EventSignal::Started(kind))
 }
 
+fn apply_completion_reward(health: &mut f32) -> String {
+    let current = health.clamp(0.0, 100.0);
+    let restored = (100.0 - current).min(20.0);
+    *health = current + restored;
+    if restored > f32::EPSILON {
+        format!("Событие выполнено: здоровье +{restored:.1}")
+    } else {
+        "Событие выполнено: здоровье уже полное".to_string()
+    }
+}
+
 pub(super) fn city_event_system(
     time: Res<Time>,
     wanted: Res<WantedState>,
@@ -123,10 +134,7 @@ pub(super) fn city_event_system(
             EventSignal::Started(EventKind::TrafficDrive) => {
                 "Событие: проедь 20 секунд без ранений и розыска".to_string()
             }
-            EventSignal::Completed(_) => {
-                probe.health = (probe.health + 20.0).min(100.0);
-                "Событие выполнено: здоровье +20".to_string()
-            }
+            EventSignal::Completed(_) => apply_completion_reward(&mut probe.health),
             EventSignal::Failed(_) => "Событие не выполнено".to_string(),
         };
         game.notice_timer = 5.0;
@@ -150,10 +158,40 @@ mod tests {
     #[test]
     fn traffic_event_rewards_clean_driving_and_honors_cooldown() {
         let mut state = CityEvents::default();
-        assert_eq!(advance_event(&mut state, input(), 0.1), Some(EventSignal::Started(EventKind::TrafficDrive)));
+        assert_eq!(
+            advance_event(&mut state, input(), 0.1),
+            Some(EventSignal::Started(EventKind::TrafficDrive))
+        );
         assert_eq!(advance_event(&mut state, input(), 19.0), None);
-        assert_eq!(advance_event(&mut state, input(), 1.0), Some(EventSignal::Completed(EventKind::TrafficDrive)));
+        assert_eq!(
+            advance_event(&mut state, input(), 1.0),
+            Some(EventSignal::Completed(EventKind::TrafficDrive))
+        );
         assert_eq!(advance_event(&mut state, input(), 1.0), None);
+    }
+
+    #[test]
+    fn event_reward_reports_only_health_actually_restored() {
+        let mut health = 80.0;
+        assert_eq!(
+            apply_completion_reward(&mut health),
+            "Событие выполнено: здоровье +20.0"
+        );
+        assert_eq!(health, 100.0);
+
+        let mut health = 95.0;
+        assert_eq!(
+            apply_completion_reward(&mut health),
+            "Событие выполнено: здоровье +5.0"
+        );
+        assert_eq!(health, 100.0);
+
+        let mut health = 100.0;
+        assert_eq!(
+            apply_completion_reward(&mut health),
+            "Событие выполнено: здоровье уже полное"
+        );
+        assert_eq!(health, 100.0);
     }
 
     #[test]
@@ -162,8 +200,15 @@ mod tests {
             let mut state = CityEvents::default();
             advance_event(&mut state, input(), 0.1);
             let mut next = input();
-            if change == 0 { next.health = 79.0; } else { next.wanted = 1; }
-            assert_eq!(advance_event(&mut state, next, 0.1), Some(EventSignal::Failed(EventKind::TrafficDrive)));
+            if change == 0 {
+                next.health = 79.0;
+            } else {
+                next.wanted = 1;
+            }
+            assert_eq!(
+                advance_event(&mut state, next, 0.1),
+                Some(EventSignal::Failed(EventKind::TrafficDrive))
+            );
         }
     }
 
@@ -172,11 +217,17 @@ mod tests {
         let mut state = CityEvents::default();
         let mut next = input();
         next.wanted = 2;
-        assert_eq!(advance_event(&mut state, next, 0.1), Some(EventSignal::Started(EventKind::EscapePolice)));
+        assert_eq!(
+            advance_event(&mut state, next, 0.1),
+            Some(EventSignal::Started(EventKind::EscapePolice))
+        );
         next.wanted = 1;
         assert_eq!(advance_event(&mut state, next, 1.0), None);
         next.wanted = 0;
-        assert_eq!(advance_event(&mut state, next, 1.0), Some(EventSignal::Completed(EventKind::EscapePolice)));
+        assert_eq!(
+            advance_event(&mut state, next, 1.0),
+            Some(EventSignal::Completed(EventKind::EscapePolice))
+        );
     }
 
     #[test]
@@ -186,6 +237,9 @@ mod tests {
         next.wanted = 2;
         advance_event(&mut state, next, 0.1);
         next.wanted = 0;
-        assert_eq!(advance_event(&mut state, next, EVENT_LIMIT_SECONDS), Some(EventSignal::Failed(EventKind::EscapePolice)));
+        assert_eq!(
+            advance_event(&mut state, next, EVENT_LIMIT_SECONDS),
+            Some(EventSignal::Failed(EventKind::EscapePolice))
+        );
     }
 }
