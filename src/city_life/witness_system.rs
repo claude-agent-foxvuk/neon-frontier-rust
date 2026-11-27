@@ -69,7 +69,7 @@ fn suppress_unwitnessed_wanted_increase(
 }
 
 #[cfg(test)]
-mod tests {
+mod witness_tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
 
