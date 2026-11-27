@@ -195,7 +195,9 @@ fn recycle_city_population(
                 citizen.displacement = Vec3::ZERO;
                 citizen.knock_velocity = Vec3::ZERO;
                 citizen.knocked = 0.0;
-                citizen.health = CITIZEN_HEALTH;
+                if citizen.dead {
+                    citizen.health = CITIZEN_HEALTH;
+                }
                 citizen.dead = false;
                 transform.translation = origin;
                 citizen_bodies[index] = Some(candidate_body);
