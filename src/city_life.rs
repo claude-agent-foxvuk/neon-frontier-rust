@@ -16,11 +16,11 @@ mod base {
     #[path = "traffic_avoidance.rs"]
     mod traffic_avoidance;
     use traffic_avoidance::choose_real_width_traffic_offset as choose_safe_traffic_offset;
-    pub(super) use traffic_avoidance::turn_traffic_at_world_edge;
+    use traffic_avoidance::turn_traffic_at_world_edge;
 
     #[path = "sim.rs"]
     mod sim;
-    pub(super) use sim::simulate_city_life;
+    use sim::simulate_city_life;
 
     include!("city_life/core.rs");
 
@@ -110,6 +110,29 @@ mod base {
                 *visibility = Visibility::Hidden;
             }
         }
+    }
+
+    pub(super) fn add_followup_systems(app: &mut App) {
+        app.add_systems(
+            Update,
+            super::city_events::city_event_system
+                .after(simulate_city_life)
+                .after(crate::controls),
+        )
+        .add_systems(
+            Update,
+            turn_traffic_at_world_edge.after(simulate_city_life),
+        )
+        .add_systems(
+            Update,
+            return_foot_officers.after(simulate_city_life),
+        )
+        .add_systems(
+            Update,
+            super::police_reserve::update_reserve_cruiser_visibility
+                .after(simulate_city_life)
+                .after(crate::controls),
+        );
     }
 
     #[cfg(test)]
@@ -243,6 +266,7 @@ pub struct CityLifePlugin;
 impl Plugin for CityLifePlugin {
     fn build(&self, app: &mut App) {
         <base::CityLifePlugin as Plugin>::build(&base::CityLifePlugin, app);
+        base::add_followup_systems(app);
         app.init_resource::<city_events::CityEvents>()
             .init_resource::<graphics_settings::GraphicsProfile>()
             .add_systems(PreUpdate, menu_clock::pause_menu_clock)
@@ -258,26 +282,6 @@ impl Plugin for CityLifePlugin {
                 graphics_settings::toggle_graphics_profile
                     .after(crate::controls)
                     .before(crate::update_world),
-            )
-            .add_systems(
-                Update,
-                city_events::city_event_system
-                    .after(base::simulate_city_life)
-                    .after(crate::controls),
-            )
-            .add_systems(
-                Update,
-                base::turn_traffic_at_world_edge.after(base::simulate_city_life),
-            )
-            .add_systems(
-                Update,
-                base::return_foot_officers.after(base::simulate_city_life),
-            )
-            .add_systems(
-                Update,
-                police_reserve::update_reserve_cruiser_visibility
-                    .after(base::simulate_city_life)
-                    .after(crate::controls),
             );
     }
 }
