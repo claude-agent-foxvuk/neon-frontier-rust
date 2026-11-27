@@ -36,7 +36,7 @@ fn saved_world() -> WorldSnapshot {
         }],
         officers: vec![OfficerSave {
             position: Vec3::new(50.0, 0.82, -20.0),
-            active: false,
+            active: true,
             shot_timer: 0.85,
         }],
     }
