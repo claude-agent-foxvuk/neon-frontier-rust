@@ -1,5 +1,7 @@
 mod helpers;
 use helpers::*;
+mod menu_clock;
+use menu_clock::pause_menu_clock;
 mod sim;
 use sim::simulate_city_life;
 mod traffic_avoidance;
