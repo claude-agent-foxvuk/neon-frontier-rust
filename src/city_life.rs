@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 mod city_events;
 mod city_neon;
+mod graphics_settings;
 mod menu_clock;
 
 mod base {
@@ -72,6 +73,12 @@ impl Plugin for CityLifePlugin {
         app.init_resource::<city_events::CityEvents>()
             .add_systems(PreUpdate, menu_clock::pause_menu_clock)
             .add_systems(Startup, city_neon::spawn_city_neon)
+            .add_systems(
+                Update,
+                graphics_settings::toggle_graphics_profile
+                    .after(crate::controls)
+                    .before(crate::update_world),
+            )
             .add_systems(
                 Update,
                 city_events::city_event_system
