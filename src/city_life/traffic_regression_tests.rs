@@ -396,6 +396,7 @@ fn live_traffic_brakes_before_the_parked_vehicle_using_its_real_obb() {
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
     let mut game = crate::Game::default();
+    game.started = true;
     game.car = Vec3::ZERO;
     game.yaw = 0.0;
     world.insert_resource(game);
