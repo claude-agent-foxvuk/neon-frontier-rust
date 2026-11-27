@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+mod city_events;
 mod city_neon;
 mod helpers;
 use helpers::*;
@@ -61,8 +62,15 @@ pub struct CityLifePlugin;
 impl Plugin for CityLifePlugin {
     fn build(&self, app: &mut App) {
         <base::CityLifePlugin as Plugin>::build(&base::CityLifePlugin, app);
-        app.add_systems(PreUpdate, menu_clock::pause_menu_clock)
-            .add_systems(Startup, city_neon::spawn_city_neon);
+        app.init_resource::<city_events::CityEvents>()
+            .add_systems(PreUpdate, menu_clock::pause_menu_clock)
+            .add_systems(Startup, city_neon::spawn_city_neon)
+            .add_systems(
+                Update,
+                city_events::city_event_system
+                    .after(simulate_city_life)
+                    .after(crate::controls),
+            );
     }
 }
 
