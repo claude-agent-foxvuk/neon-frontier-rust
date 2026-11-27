@@ -13,7 +13,13 @@ pub(super) fn choose_real_width_traffic_offset(
 ) -> Option<f32> {
     let forward = Vec2::new(side.y, -side.x);
     let vehicle_yaw = forward.y.atan2(forward.x);
-    for direction in [1.0, -1.0] {
+    let current_offset = (current - baseline).dot(side);
+    let preferred_direction = if current_offset.abs() > 0.1 {
+        current_offset.signum()
+    } else {
+        1.0
+    };
+    for direction in [preferred_direction, -preferred_direction] {
         let offset = direction * CAR_PASSING_OFFSET;
         let target = baseline + side * offset;
         if (target.dot(side) - road_center).abs() + crate::physics::VEHICLE_HALF_WIDTH
@@ -91,5 +97,20 @@ mod tests {
             p.x > 4.0 && p.y < -1.0
         });
         assert_eq!(offset, None);
+    }
+
+    #[test]
+    fn passing_prefers_the_currently_occupied_open_lane() {
+        let current = Vec2::new(0.0, -CAR_PASSING_OFFSET);
+        let offset = choose_real_width_traffic_offset(
+            current,
+            Vec2::ZERO,
+            Vec2::Y,
+            0.0,
+            8.0,
+            |_| false,
+        );
+
+        assert_eq!(offset, Some(-CAR_PASSING_OFFSET));
     }
 }
