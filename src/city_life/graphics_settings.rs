@@ -83,18 +83,12 @@ mod tests {
             world.flush();
 
             let expected_quality = !initial_quality;
-            assert_eq!(
-                world.resource::<crate::Game>().bloom,
-                expected_quality
-            );
+            assert_eq!(world.resource::<crate::Game>().bloom, expected_quality);
             assert_eq!(
                 world.get::<DirectionalLight>(sun).unwrap().shadows_enabled,
                 expected_quality
             );
-            assert_eq!(
-                world.get::<Bloom>(camera).is_some(),
-                expected_quality
-            );
+            assert_eq!(world.get::<Bloom>(camera).is_some(), expected_quality);
             assert_eq!(world.resource::<crate::Game>().notice_timer, 3.0);
         }
     }
