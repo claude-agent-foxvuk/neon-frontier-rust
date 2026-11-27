@@ -1,6 +1,9 @@
-use bevy::prelude::Vec2;
+use bevy::prelude::*;
 
-use super::{vehicle_city_collision, CAR_BRAKE_DISTANCE, CAR_PASSING_OFFSET};
+use super::{
+    traffic_rotation, vehicle_city_collision, CAR_BRAKE_DISTANCE, CAR_BODY_RADIUS, CAR_PASSING_OFFSET,
+    CITY_LIMIT, TrafficCar,
+};
 
 /// Select a passing lane only when the whole vehicle and its swept path fit.
 pub(super) fn choose_real_width_traffic_offset(
@@ -48,9 +51,83 @@ pub(super) fn choose_real_width_traffic_offset(
     None
 }
 
+fn traffic_is_outbound_at_world_edge(position: Vec2, along_x: bool, direction: f32) -> bool {
+    if !position.is_finite() || !direction.is_finite() || direction == 0.0 {
+        return false;
+    }
+    let coordinate = if along_x { position.x } else { position.y };
+    let edge = CITY_LIMIT - CAR_BODY_RADIUS;
+    (coordinate >= edge && direction > 0.0) || (coordinate <= -edge && direction < 0.0)
+}
+
+pub(super) fn turn_traffic_at_world_edge(
+    game: Res<crate::Game>,
+    mut traffic: Query<(&mut Transform, &mut TrafficCar)>,
+) {
+    if !game.started {
+        return;
+    }
+    for (mut transform, mut car) in &mut traffic {
+        let position = Vec2::new(transform.translation.x, transform.translation.z);
+        if traffic_is_outbound_at_world_edge(position, car.along_x, car.direction) {
+            car.direction = -car.direction;
+            transform.rotation = traffic_rotation(car.along_x, car.direction);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn traffic_turns_inward_at_all_four_world_edges() {
+        let edge = CITY_LIMIT - CAR_BODY_RADIUS;
+        assert!(traffic_is_outbound_at_world_edge(
+            Vec2::new(edge, 0.0),
+            true,
+            1.0,
+        ));
+        assert!(traffic_is_outbound_at_world_edge(
+            Vec2::new(-edge, 0.0),
+            true,
+            -1.0,
+        ));
+        assert!(traffic_is_outbound_at_world_edge(
+            Vec2::new(0.0, edge),
+            false,
+            1.0,
+        ));
+        assert!(traffic_is_outbound_at_world_edge(
+            Vec2::new(0.0, -edge),
+            false,
+            -1.0,
+        ));
+        assert!(!traffic_is_outbound_at_world_edge(
+            Vec2::new(edge, 0.0),
+            true,
+            -1.0,
+        ));
+        assert!(!traffic_is_outbound_at_world_edge(
+            Vec2::new(edge - 1.0, 0.0),
+            true,
+            1.0,
+        ));
+    }
+
+    #[test]
+    fn invalid_traffic_direction_does_not_trigger_an_edge_turn() {
+        assert!(!traffic_is_outbound_at_world_edge(
+            Vec2::new(CITY_LIMIT, 0.0),
+            true,
+            0.0,
+        ));
+        assert!(!traffic_is_outbound_at_world_edge(
+            Vec2::new(f32::NAN, 0.0),
+            true,
+            1.0,
+        ));
+    }
 
     #[test]
     fn passing_uses_vehicle_width_not_longitudinal_radius() {
