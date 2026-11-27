@@ -92,6 +92,20 @@ fn advance_event(state: &mut CityEvents, input: EventInput, dt: f32) -> Option<E
     Some(EventSignal::Started(kind))
 }
 
+fn active_event_notice(state: &CityEvents) -> Option<String> {
+    let event = state.active.as_ref()?;
+    let remaining = event.remaining.ceil() as u32;
+    match event.kind {
+        EventKind::EscapePolice => Some(format!(
+            "Событие: скройся от полиции • осталось {remaining} с"
+        )),
+        EventKind::TrafficDrive => Some(format!(
+            "Событие: чистая езда {}/20 с • осталось {remaining} с",
+            event.progress.floor() as u32,
+        )),
+    }
+}
+
 fn apply_completion_reward(health: &mut f32) -> String {
     let current = health.clamp(0.0, 100.0);
     let restored = (100.0 - current).min(20.0);
@@ -138,6 +152,9 @@ pub(super) fn city_event_system(
             EventSignal::Failed(_) => "Событие не выполнено".to_string(),
         };
         game.notice_timer = 5.0;
+    } else if let Some(status) = active_event_notice(&events) {
+        game.notice = status;
+        game.notice_timer = 0.1;
     }
 }
 
@@ -168,6 +185,31 @@ mod tests {
             Some(EventSignal::Completed(EventKind::TrafficDrive))
         );
         assert_eq!(advance_event(&mut state, input(), 1.0), None);
+    }
+
+    #[test]
+    fn active_event_notice_shows_progress_and_remaining_time() {
+        let mut state = CityEvents::default();
+        advance_event(&mut state, input(), 0.1);
+        assert_eq!(
+            active_event_notice(&state).as_deref(),
+            Some("Событие: чистая езда 0/20 с • осталось 90 с")
+        );
+
+        advance_event(&mut state, input(), 4.9);
+        assert_eq!(
+            active_event_notice(&state).as_deref(),
+            Some("Событие: чистая езда 4/20 с • осталось 85 с")
+        );
+
+        let mut police = input();
+        police.wanted = 2;
+        let mut state = CityEvents::default();
+        advance_event(&mut state, police, 0.1);
+        assert_eq!(
+            active_event_notice(&state).as_deref(),
+            Some("Событие: скройся от полиции • осталось 90 с")
+        );
     }
 
     #[test]
