@@ -71,6 +71,7 @@ impl Plugin for CityLifePlugin {
     fn build(&self, app: &mut App) {
         <base::CityLifePlugin as Plugin>::build(&base::CityLifePlugin, app);
         app.init_resource::<city_events::CityEvents>()
+            .init_resource::<graphics_settings::GraphicsProfile>()
             .add_systems(PreUpdate, menu_clock::pause_menu_clock)
             .add_systems(Startup, city_neon::spawn_city_neon)
             .add_systems(

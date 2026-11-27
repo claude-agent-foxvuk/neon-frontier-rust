@@ -1,12 +1,18 @@
 use bevy::{post_process::bloom::Bloom, prelude::*};
 
-fn next_quality_enabled(bloom_enabled: bool, shadows_enabled: bool) -> bool {
-    !bloom_enabled && !shadows_enabled
+#[derive(Default, Resource)]
+pub(super) struct GraphicsProfile {
+    performance: bool,
+}
+
+fn next_performance_mode(current: bool) -> bool {
+    !current
 }
 
 pub(super) fn toggle_graphics_profile(
     keys: Res<ButtonInput<KeyCode>>,
     mut game: ResMut<crate::Game>,
+    mut profile: ResMut<GraphicsProfile>,
     mut sun: Query<&mut DirectionalLight, With<crate::SunLight>>,
     cameras: Query<(Entity, Option<&Bloom>), With<crate::FollowCamera>>,
     mut commands: Commands,
@@ -15,10 +21,8 @@ pub(super) fn toggle_graphics_profile(
         return;
     }
 
-    let quality_enabled = next_quality_enabled(
-        game.bloom,
-        sun.iter().any(|light| light.shadows_enabled),
-    );
+    profile.performance = next_performance_mode(profile.performance);
+    let quality_enabled = !profile.performance;
     game.bloom = quality_enabled;
     for mut light in &mut sun {
         light.shadows_enabled = quality_enabled;
@@ -46,34 +50,36 @@ mod tests {
 
     #[test]
     fn graphics_profile_toggles_between_quality_and_performance() {
-        assert!(!next_quality_enabled(true, true));
-        assert!(!next_quality_enabled(false, true));
-        assert!(next_quality_enabled(false, false));
+        assert!(next_performance_mode(false));
+        assert!(!next_performance_mode(true));
     }
 
     #[test]
     fn f2_changes_bloom_and_sun_shadows_in_both_directions() {
-        for initial_quality in [true, false] {
+        for initial_performance in [false, true] {
             let mut world = World::new();
             let mut keys = ButtonInput::<KeyCode>::default();
             keys.press(KeyCode::F2);
             world.insert_resource(keys);
+            world.insert_resource(GraphicsProfile {
+                performance: initial_performance,
+            });
 
             let mut game = crate::Game::default();
-            game.bloom = initial_quality;
+            game.bloom = !initial_performance;
             world.insert_resource(game);
 
             let sun = world
                 .spawn((
                     crate::SunLight,
                     DirectionalLight {
-                        shadows_enabled: initial_quality,
+                        shadows_enabled: !initial_performance,
                         ..default()
                     },
                 ))
                 .id();
             let camera = world.spawn(crate::FollowCamera).id();
-            if initial_quality {
+            if !initial_performance {
                 world.entity_mut(camera).insert(Bloom::NATURAL);
             }
 
@@ -82,7 +88,11 @@ mod tests {
                 .expect("F2 applies the selected graphics profile");
             world.flush();
 
-            let expected_quality = !initial_quality;
+            let expected_quality = initial_performance;
+            assert_eq!(
+                world.resource::<GraphicsProfile>().performance,
+                !initial_performance
+            );
             assert_eq!(world.resource::<crate::Game>().bloom, expected_quality);
             assert_eq!(
                 world.get::<DirectionalLight>(sun).unwrap().shadows_enabled,
