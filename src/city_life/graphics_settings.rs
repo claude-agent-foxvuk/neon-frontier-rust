@@ -25,7 +25,7 @@ pub(super) fn toggle_graphics_profile(
     let quality_enabled = !profile.performance;
     game.bloom = quality_enabled;
     for mut light in &mut sun {
-        light.shadows_enabled = quality_enabled;
+        light.shadow_maps_enabled = quality_enabled;
     }
     for (camera, bloom) in &cameras {
         if quality_enabled && bloom.is_none() {
@@ -73,7 +73,7 @@ mod tests {
                 .spawn((
                     crate::SunLight,
                     DirectionalLight {
-                        shadows_enabled: !initial_performance,
+                        shadow_maps_enabled: !initial_performance,
                         ..default()
                     },
                 ))
@@ -95,7 +95,7 @@ mod tests {
             );
             assert_eq!(world.resource::<crate::Game>().bloom, expected_quality);
             assert_eq!(
-                world.get::<DirectionalLight>(sun).unwrap().shadows_enabled,
+                world.get::<DirectionalLight>(sun).unwrap().shadow_maps_enabled,
                 expected_quality
             );
             assert_eq!(world.get::<Bloom>(camera).is_some(), expected_quality);
