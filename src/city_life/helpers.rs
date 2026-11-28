@@ -197,6 +197,7 @@ pub(super) fn traffic_obstacle_ahead_with_player_forward(
     } else {
         crate::physics::Body::person(player)
     };
+    let current_forward = forward.normalize_or_zero();
     crate::physics::bodies_overlap(&braking_probe, &player_body)
         || (!in_vehicle
             && vehicle
@@ -206,7 +207,15 @@ pub(super) fn traffic_obstacle_ahead_with_player_forward(
             .iter()
             .any(|patrol| crate::physics::bodies_overlap(&braking_probe, patrol))
         || traffic_bodies.iter().enumerate().any(|(other, body)| {
-            other != car_index && crate::physics::bodies_overlap(&braking_probe, body)
+            if other == car_index || !crate::physics::bodies_overlap(&braking_probe, body) {
+                return false;
+            }
+            let other_forward = Vec2::new(body.yaw.cos(), body.yaw.sin()).normalize_or_zero();
+            let conflicting_approach = current_forward.length_squared() > 1.0e-6
+                && current_forward.dot(other_forward) < 0.5;
+            // Traffic query order gives crossing and opposing approaches a stable right-of-way:
+            // a later car yields to an earlier one, so simultaneous arrivals cannot all wait.
+            !(other > car_index && conflicting_approach)
         })
 }
 
@@ -287,6 +296,37 @@ mod oriented_traffic_tests {
         let crossing_lane =
             crate::physics::Body::vehicle(Vec2::new(4.0, 1.8), std::f32::consts::FRAC_PI_2);
         assert!(has_car_ahead(crossing_lane));
+    }
+
+    #[test]
+    fn higher_priority_traffic_can_enter_a_crossing_before_later_arrivals() {
+        let crossing = crate::physics::Body::vehicle(
+            Vec2::new(4.0, 1.8),
+            std::f32::consts::FRAC_PI_2,
+        );
+        let cars = [crate::physics::Body::vehicle(Vec2::ZERO, 0.0), crossing];
+        let far_away = Vec2::splat(200.0);
+
+        assert!(!traffic_obstacle_ahead_with_bodies(
+            Vec2::ZERO,
+            Vec2::X,
+            far_away,
+            None,
+            false,
+            &cars,
+            &[],
+            0,
+        ));
+        assert!(traffic_obstacle_ahead_with_bodies(
+            Vec2::ZERO,
+            Vec2::X,
+            far_away,
+            None,
+            false,
+            &cars,
+            &[],
+            1,
+        ));
     }
 
     #[test]
