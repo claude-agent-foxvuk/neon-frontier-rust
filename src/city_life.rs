@@ -6,6 +6,10 @@ mod graphics_settings;
 mod menu_clock;
 mod police_reserve;
 
+fn player_car_visual_yaw(yaw: f32) -> f32 {
+    yaw + std::f32::consts::PI
+}
+
 mod base {
     use super::*;
 
@@ -41,6 +45,16 @@ mod base {
         bodies
             .oriented
             .extend(super::city_neon::central_park_collision_bodies());
+    }
+
+    fn align_vehicle_visual_heading(
+        game: Res<crate::Game>,
+        mut cars: Query<&mut Transform, With<crate::CarVisual>>,
+    ) {
+        let yaw = super::player_car_visual_yaw(game.yaw);
+        for mut transform in &mut cars {
+            transform.rotation = Quat::from_rotation_y(yaw);
+        }
     }
 
     fn officer_should_return_to_patrol(
@@ -133,6 +147,10 @@ mod base {
             .add_systems(
                 Update,
                 publish_park_collision_bodies.after(simulate_city_life),
+            )
+            .add_systems(
+                Update,
+                align_vehicle_visual_heading.after(crate::update_world),
             )
             .add_systems(
                 Update,
@@ -329,6 +347,28 @@ impl Plugin for CityLifePlugin {
                     .after(crate::controls)
                     .before(crate::update_world),
             );
+    }
+}
+
+#[cfg(test)]
+mod player_car_heading_tests {
+    use super::*;
+
+    #[test]
+    fn a_turns_left_and_d_turns_right_with_the_car_visual_matching_motion() {
+        let left_steering = crate::vehicle_steering_step(0.0, 1.0, 0.05);
+        let left_yaw = crate::vehicle_yaw_step(0.0, left_steering, 12.0, 0.1);
+        let left_motion = Vec3::new(left_yaw.sin(), 0.0, left_yaw.cos());
+        let left_visual = Quat::from_rotation_y(player_car_visual_yaw(left_yaw)) * Vec3::NEG_Z;
+        assert!(left_motion.x < 0.0);
+        assert!(left_visual.distance(left_motion) < 1.0e-5);
+
+        let right_steering = crate::vehicle_steering_step(0.0, -1.0, 0.05);
+        let right_yaw = crate::vehicle_yaw_step(0.0, right_steering, 12.0, 0.1);
+        let right_motion = Vec3::new(right_yaw.sin(), 0.0, right_yaw.cos());
+        let right_visual = Quat::from_rotation_y(player_car_visual_yaw(right_yaw)) * Vec3::NEG_Z;
+        assert!(right_motion.x > 0.0);
+        assert!(right_visual.distance(right_motion) < 1.0e-5);
     }
 }
 
