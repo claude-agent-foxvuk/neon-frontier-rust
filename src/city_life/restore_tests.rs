@@ -215,7 +215,7 @@ fn main_update_world_queries_initialize_without_conflicts() {
 }
 
 #[test]
-fn live_traffic_brakes_for_ahead_player_vehicle_using_oriented_contacts() {
+fn live_traffic_starts_a_safe_pass_around_ahead_player_vehicle() {
     let mut world = World::new();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
@@ -250,7 +250,8 @@ fn live_traffic_brakes_for_ahead_player_vehicle_using_oriented_contacts() {
 
     let snapshot = &world.resource::<WorldState>().snapshot;
     assert_eq!(snapshot.traffic.len(), 1);
-    assert!(snapshot.traffic[0].stop_timer > 0.19);
+    assert!(snapshot.traffic[0].lane_offset.abs() > 0.1);
+    assert!((snapshot.traffic[0].position.x - 6.0).abs() < 1.0e-4);
     let traffic_transform = world
         .query_filtered::<&Transform, With<TrafficCar>>()
         .single(&world)
@@ -260,7 +261,7 @@ fn live_traffic_brakes_for_ahead_player_vehicle_using_oriented_contacts() {
     let player_body = vehicle_body_from_forward(player.vehicle_position, player.forward);
     assert!(
         !crate::physics::bodies_overlap(&traffic_body, &player_body),
-        "traffic must brake before reaching the player's oriented vehicle footprint"
+        "traffic must shift into a clear lane without advancing into the player's oriented vehicle footprint"
     );
 }
 
