@@ -250,7 +250,8 @@ fn live_traffic_starts_a_safe_pass_around_ahead_player_vehicle() {
 
     let snapshot = &world.resource::<WorldState>().snapshot;
     assert_eq!(snapshot.traffic.len(), 1);
-    assert!(snapshot.traffic[0].lane_offset.abs() > 0.1);
+    assert!(snapshot.traffic[0].avoid_offset.abs() > 0.1);
+    assert!(snapshot.traffic[0].lane_offset.abs() > 0.0);
     assert!((snapshot.traffic[0].position.x - 6.0).abs() < 1.0e-4);
     let traffic_transform = world
         .query_filtered::<&Transform, With<TrafficCar>>()
