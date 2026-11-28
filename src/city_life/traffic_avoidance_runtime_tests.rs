@@ -104,10 +104,7 @@ fn active_traffic_turns_inward_at_each_world_edge_but_stays_idle_in_menu() {
         let car = world.get::<TrafficCar>(*entity).unwrap();
         assert_eq!(transform.translation, position);
         assert_eq!(car.direction, -direction);
-        assert_eq!(
-            transform.rotation,
-            traffic_rotation(along_x, -direction)
-        );
+        assert_eq!(transform.rotation, traffic_rotation(along_x, -direction));
     }
 }
 
@@ -193,4 +190,88 @@ fn live_head_on_traffic_cars_both_leave_their_approach_without_mutual_deadlock()
     let west_position = world.get::<Transform>(westbound).unwrap().translation;
     assert!(east_position.x > 2.0, "eastbound car did not clear the opposing car");
     assert!(west_position.x < -2.0, "westbound car did not clear the opposing car");
+}
+
+#[test]
+fn live_crossing_traffic_cars_both_clear_the_intersection_without_deadlock() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    let mut game = crate::Game::default();
+    game.started = true;
+    world.insert_resource(game);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(120.0, 0.9, 120.0),
+        vehicle_position: Vec3::new(122.0, 0.65, 120.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: false,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    let eastbound = world
+        .spawn((
+            Transform::from_xyz(-14.0, 0.48, 0.0)
+                .with_rotation(traffic_rotation(true, 1.0)),
+            TrafficCar {
+                speed: 6.0,
+                direction: 1.0,
+                along_x: true,
+                stop_timer: 0.0,
+                lane_offset: 0.0,
+                avoid_offset: 0.0,
+            },
+        ))
+        .id();
+    let northbound = world
+        .spawn((
+            Transform::from_xyz(0.0, 0.48, -14.0)
+                .with_rotation(traffic_rotation(false, 1.0)),
+            TrafficCar {
+                speed: 6.0,
+                direction: 1.0,
+                along_x: false,
+                stop_timer: 0.0,
+                lane_offset: 0.0,
+                avoid_offset: 0.0,
+            },
+        ))
+        .id();
+
+    for _ in 0..220 {
+        world
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(50));
+        world
+            .run_system_once(simulate_city_life)
+            .expect("crossing traffic resolves simultaneous approaches");
+        let east_transform = world
+            .get::<Transform>(eastbound)
+            .expect("eastbound car remains in the simulation");
+        let east_car = world
+            .get::<TrafficCar>(eastbound)
+            .expect("eastbound traffic state remains available");
+        let north_transform = world
+            .get::<Transform>(northbound)
+            .expect("northbound car remains in the simulation");
+        let north_car = world
+            .get::<TrafficCar>(northbound)
+            .expect("northbound traffic state remains available");
+        let east_body = traffic_vehicle_body(east_transform, east_car.along_x, east_car.direction);
+        let north_body = traffic_vehicle_body(north_transform, north_car.along_x, north_car.direction);
+        assert!(east_body.center.is_finite() && north_body.center.is_finite());
+        assert!(!bodies_overlap(&east_body, &north_body));
+        assert!(!vehicle_city_collision(east_body.center, east_body.yaw));
+        assert!(!vehicle_city_collision(north_body.center, north_body.yaw));
+    }
+
+    let east_position = world.get::<Transform>(eastbound).unwrap().translation;
+    let north_position = world.get::<Transform>(northbound).unwrap().translation;
+    assert!(east_position.x > 2.0, "eastbound car did not clear the crossing");
+    assert!(north_position.z > 2.0, "northbound car did not clear the crossing");
 }
