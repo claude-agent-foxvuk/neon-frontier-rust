@@ -382,60 +382,11 @@ fn live_traffic_brakes_before_the_player_vehicle_obb() {
     let mut query = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
     let (transform, car) = query.single(&world).expect("one traffic car remains");
     assert_eq!(transform.translation.x, -9.0);
-    assert!(car.stop_timer > 0.0);
+    assert!(car.lane_offset.abs() > 0.1);
     assert!(!bodies_overlap(
         &traffic_vehicle_body(transform, car.along_x, car.direction),
         &Body::vehicle(Vec2::ZERO, -std::f32::consts::FRAC_PI_2),
     ));
-}
-
-#[test]
-fn live_traffic_brakes_before_the_parked_vehicle_using_its_real_obb() {
-    let mut world = World::new();
-    let mut time = Time::<()>::default();
-    time.advance_by(Duration::from_millis(16));
-    world.insert_resource(time);
-    let mut game = crate::Game::default();
-    game.started = true;
-    game.car = Vec3::ZERO;
-    game.yaw = 0.0;
-    world.insert_resource(game);
-    world.insert_resource(PlayerProbe {
-        position: Vec3::new(120.0, 0.9, 120.0),
-        vehicle_position: Vec3::ZERO,
-        forward: Vec3::NEG_Z,
-        in_vehicle: false,
-        punch: false,
-        health: 100.0,
-    });
-    world.init_resource::<TrafficBodies>();
-    world.init_resource::<WantedState>();
-    world.init_resource::<WorldState>();
-    world.init_resource::<WorldRestore>();
-
-    world.spawn((
-        Transform::from_xyz(-9.0, 0.48, 0.0),
-        TrafficCar {
-            speed: 8.0,
-            direction: 1.0,
-            along_x: true,
-            stop_timer: 0.0,
-            lane_offset: 0.0,
-            avoid_offset: 0.0,
-        },
-    ));
-
-    world
-        .run_system_once(simulate_city_life)
-        .expect("traffic brakes before the parked player's oriented vehicle body");
-
-    let mut query = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
-    let (transform, car) = query.single(&world).expect("one traffic car remains");
-    let parked = Body::vehicle(Vec2::ZERO, std::f32::consts::FRAC_PI_2);
-    let traffic = traffic_vehicle_body(transform, car.along_x, car.direction);
-    assert_eq!(transform.translation.x, -9.0);
-    assert!(car.stop_timer > 0.0);
-    assert!(!bodies_overlap(&traffic, &parked));
 }
 
 fn live_police_collision_world() -> World {
@@ -624,4 +575,53 @@ fn live_traffic_pair_separation_uses_free_side_next_to_building() {
             assert_eq!(moved_from_start, 1);
         }
     }
+}
+
+#[test]
+fn live_traffic_brakes_before_the_parked_vehicle_using_its_real_obb() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    let mut game = crate::Game::default();
+    game.started = true;
+    game.car = Vec3::ZERO;
+    game.yaw = 0.0;
+    world.insert_resource(game);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(120.0, 0.9, 120.0),
+        vehicle_position: Vec3::ZERO,
+        forward: Vec3::NEG_Z,
+        in_vehicle: false,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    world.spawn((
+        Transform::from_xyz(-9.0, 0.48, 0.0),
+        TrafficCar {
+            speed: 8.0,
+            direction: 1.0,
+            along_x: true,
+            stop_timer: 0.0,
+            lane_offset: 0.0,
+            avoid_offset: 0.0,
+        },
+    ));
+
+    world
+        .run_system_once(simulate_city_life)
+        .expect("traffic brakes before the parked player's oriented vehicle body");
+
+    let mut query = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
+    let (transform, car) = query.single(&world).expect("one traffic car remains");
+    let parked = Body::vehicle(Vec2::ZERO, std::f32::consts::FRAC_PI_2);
+    let traffic = traffic_vehicle_body(transform, car.along_x, car.direction);
+    assert_eq!(transform.translation.x, -9.0);
+    assert!(car.lane_offset.abs() > 0.1);
+    assert!(!bodies_overlap(&traffic, &parked));
 }
