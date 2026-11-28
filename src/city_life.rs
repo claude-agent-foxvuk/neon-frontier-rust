@@ -31,6 +31,12 @@ mod base {
     const OFFICER_BOARD_DISTANCE: f32 = 3.0;
     const OFFICER_RETURN_SPEED: f32 = 8.0;
 
+    pub(super) fn publish_park_collision_bodies(mut bodies: ResMut<TrafficBodies>) {
+        bodies
+            .oriented
+            .extend(super::city_neon::central_park_collision_bodies());
+    }
+
     fn officer_should_return_to_patrol(
         wanted_level: u8,
         player_position: Vec2,
@@ -118,6 +124,10 @@ mod base {
     pub(super) fn add_followup_systems(app: &mut App) {
         app.init_resource::<OfficerReinforcementState>()
             .init_resource::<WantedWitnessSnapshot>()
+            .add_systems(
+                Update,
+                publish_park_collision_bodies.after(simulate_city_life),
+            )
             .add_systems(
                 Update,
                 capture_wanted_before_incident
@@ -345,5 +355,25 @@ mod plugin_tests {
         app.world_mut().resource_mut::<crate::Game>().started = true;
         app.world_mut().run_schedule(PreUpdate);
         assert!(!app.world().resource::<Time<Virtual>>().is_paused());
+    }
+}
+
+#[cfg(test)]
+mod park_collision_publication_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn player_collision_resource_includes_central_park_obstacles() {
+        let mut world = World::new();
+        world.init_resource::<TrafficBodies>();
+
+        world
+            .run_system_once(base::publish_park_collision_bodies)
+            .expect("park collision bodies publish for player movement");
+
+        let published = &world.resource::<TrafficBodies>().oriented;
+        let expected = city_neon::central_park_collision_bodies();
+        assert_eq!(published.as_slice(), expected.as_slice());
     }
 }
