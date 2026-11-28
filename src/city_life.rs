@@ -31,7 +31,13 @@ mod base {
     const OFFICER_BOARD_DISTANCE: f32 = 3.0;
     const OFFICER_RETURN_SPEED: f32 = 8.0;
 
-    pub(super) fn publish_park_collision_bodies(mut bodies: ResMut<TrafficBodies>) {
+    pub(super) fn publish_park_collision_bodies(
+        game: Option<Res<crate::Game>>,
+        mut bodies: ResMut<TrafficBodies>,
+    ) {
+        if game.as_ref().is_some_and(|game| !game.started) {
+            return;
+        }
         bodies
             .oriented
             .extend(super::city_neon::central_park_collision_bodies());
@@ -375,5 +381,19 @@ mod park_collision_publication_tests {
         let published = &world.resource::<TrafficBodies>().oriented;
         let expected = city_neon::central_park_collision_bodies();
         assert_eq!(published.as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn park_collision_publisher_does_not_accumulate_bodies_in_the_main_menu() {
+        let mut world = World::new();
+        world.init_resource::<TrafficBodies>();
+        world.insert_resource(crate::Game::default());
+
+        for _ in 0..3 {
+            world
+                .run_system_once(base::publish_park_collision_bodies)
+                .expect("menu leaves the park collision list untouched");
+            assert!(world.resource::<TrafficBodies>().oriented.is_empty());
+        }
     }
 }
