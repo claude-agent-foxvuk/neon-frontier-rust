@@ -6,7 +6,7 @@ const PARK_TILE_SIZE: f32 = 4.2;
 const PARK_CORNER_OFFSET: f32 = 7.75;
 const PARK_PATH_WIDTH: f32 = 0.34;
 const PARK_BENCH_OFFSET: f32 = 0.68;
-const PARK_TREE_COLLISION_RADIUS: f32 = 0.32;
+const PARK_TREE_COLLISION_RADIUS: f32 = 0.45;
 const PARK_BENCH_HALF_LENGTH: f32 = 0.72;
 const PARK_BENCH_HALF_WIDTH: f32 = 0.23;
 
@@ -324,7 +324,8 @@ mod tests {
             assert!(bodies_overlap(&walker(center), &obstacles[park_index]));
 
             for side in [-1.0, 1.0] {
-                let bench_index = centers.len() + park_index * 2 + usize::from(side > 0.0);
+                let side_index = if side > 0.0 { 1 } else { 0 };
+                let bench_index = centers.len() + park_index * 2 + side_index;
                 let bench_position = center + Vec2::new(side * PARK_BENCH_OFFSET, 0.0);
                 assert!(bodies_overlap(&walker(bench_position), &obstacles[bench_index]));
             }
