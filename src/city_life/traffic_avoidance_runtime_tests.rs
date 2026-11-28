@@ -275,3 +275,93 @@ fn live_crossing_traffic_cars_both_clear_the_intersection_without_deadlock() {
     assert!(east_position.x > 2.0, "eastbound car did not clear the crossing");
     assert!(north_position.z > 2.0, "northbound car did not clear the crossing");
 }
+
+#[test]
+fn live_four_way_traffic_does_not_deadlock_when_all_approaches_arrive_together() {
+    let mut world = World::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    let mut game = crate::Game::default();
+    game.started = true;
+    world.insert_resource(game);
+    world.insert_resource(PlayerProbe {
+        position: Vec3::new(120.0, 0.9, 120.0),
+        vehicle_position: Vec3::new(122.0, 0.65, 120.0),
+        forward: Vec3::NEG_Z,
+        in_vehicle: false,
+        punch: false,
+        health: 100.0,
+    });
+    world.init_resource::<TrafficBodies>();
+    world.init_resource::<WantedState>();
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
+
+    let approaches = [
+        (Vec3::new(-14.0, 0.48, 0.0), true, 1.0),
+        (Vec3::new(14.0, 0.48, 0.0), true, -1.0),
+        (Vec3::new(0.0, 0.48, -14.0), false, 1.0),
+        (Vec3::new(0.0, 0.48, 14.0), false, -1.0),
+    ];
+    let cars: Vec<_> = approaches
+        .iter()
+        .map(|(position, along_x, direction)| {
+            world
+                .spawn((
+                    Transform::from_translation(*position)
+                        .with_rotation(traffic_rotation(*along_x, *direction)),
+                    TrafficCar {
+                        speed: 6.0,
+                        direction: *direction,
+                        along_x: *along_x,
+                        stop_timer: 0.0,
+                        lane_offset: 0.0,
+                        avoid_offset: 0.0,
+                    },
+                ))
+                .id()
+        })
+        .collect();
+
+    for _ in 0..260 {
+        world
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(50));
+        world
+            .run_system_once(simulate_city_life)
+            .expect("four simultaneous approaches resolve through live traffic simulation");
+
+        let bodies: Vec<_> = cars
+            .iter()
+            .map(|entity| {
+                let transform = world
+                    .get::<Transform>(*entity)
+                    .expect("each approaching vehicle remains in the simulation");
+                let car = world
+                    .get::<TrafficCar>(*entity)
+                    .expect("each approaching vehicle retains its traffic state");
+                traffic_vehicle_body(transform, car.along_x, car.direction)
+            })
+            .collect();
+        for (index, body) in bodies.iter().enumerate() {
+            assert!(body.center.is_finite());
+            assert!(!vehicle_city_collision(body.center, body.yaw));
+            for other in &bodies[(index + 1)..] {
+                assert!(!bodies_overlap(body, other));
+            }
+        }
+    }
+
+    for (entity, (_, along_x, direction)) in cars.iter().zip(approaches) {
+        let transform = world
+            .get::<Transform>(*entity)
+            .expect("each approaching vehicle remains in the simulation");
+        let progress = if along_x {
+            transform.translation.x * direction
+        } else {
+            transform.translation.z * direction
+        };
+        assert!(progress > 2.0, "a four-way approach remained blocked: {transform:?}");
+    }
+}
