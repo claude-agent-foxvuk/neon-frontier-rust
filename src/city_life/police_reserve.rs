@@ -1,8 +1,20 @@
 use bevy::prelude::*;
 
-use crate::physics::Body;
+use crate::physics::{bodies_overlap, Body};
 
-use super::{TrafficBodies, WantedState};
+use super::{PlayerProbe, TrafficBodies, WantedState};
+
+const ROAD_SPACING: f32 = 48.0;
+const ROAD_HALF_WIDTH: f32 = 5.5;
+const ROAD_LANE_OFFSET: f32 = 2.1;
+const CITY_LIMIT: f32 = 160.0;
+const BUILDING_HALF: f32 = 14.0;
+const RESPONSE_LEVEL: u8 = 4;
+const RESPONSE_TRIGGER_DISTANCE: f32 = 80.0;
+const RESPONSE_MIN_SPAWN_DISTANCE: f32 = 26.0;
+const RESPONSE_MAX_SPAWN_DISTANCE: f32 = 56.0;
+const RESPONSE_STOP_DISTANCE: f32 = 12.0;
+const RESPONSE_SPEED: f32 = 16.0;
 
 #[derive(Component)]
 pub(super) struct ReserveCruiser {
@@ -11,6 +23,86 @@ pub(super) struct ReserveCruiser {
 
 fn reserve_vehicle_count(wanted_level: u8) -> usize {
     wanted_level.saturating_sub(2).min(4) as usize
+}
+
+fn reserve_vehicle_body(position: Vec2, yaw: f32) -> Body {
+    Body::vehicle(position, yaw)
+}
+
+fn reserve_vehicle_city_collision(position: Vec2, yaw: f32) -> bool {
+    if !position.is_finite() || !yaw.is_finite() {
+        return true;
+    }
+    let (sin_yaw, cos_yaw) = yaw.sin_cos();
+    let extent_x = crate::physics::VEHICLE_HALF_LENGTH * cos_yaw.abs()
+        + crate::physics::VEHICLE_HALF_WIDTH * sin_yaw.abs();
+    let extent_y = crate::physics::VEHICLE_HALF_LENGTH * sin_yaw.abs()
+        + crate::physics::VEHICLE_HALF_WIDTH * cos_yaw.abs();
+    if position.x.abs() + extent_x > CITY_LIMIT || position.y.abs() + extent_y > CITY_LIMIT {
+        return true;
+    }
+
+    let vehicle = reserve_vehicle_body(position, yaw);
+    let hits_building = (-3_i32..=2).any(|grid_x| {
+        (-3_i32..=2).any(|grid_z| {
+            let center = Vec2::new(
+                grid_x as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
+                grid_z as f32 * ROAD_SPACING + ROAD_SPACING * 0.5,
+            );
+            bodies_overlap(
+                &vehicle,
+                &Body::new(center, BUILDING_HALF, BUILDING_HALF, 0.0),
+            )
+        })
+    });
+    hits_building
+        || super::city_neon::central_park_collision_bodies()
+            .iter()
+            .any(|obstacle| bodies_overlap(&vehicle, obstacle))
+}
+
+fn reserve_response_spawn(player: Vec2, occupied: &[Body]) -> Option<(Vec2, f32)> {
+    if !player.is_finite() {
+        return None;
+    }
+    let approach_offsets = [-44.0_f32, -36.0, -28.0, 28.0, 36.0, 44.0];
+    let lane_offsets = [-ROAD_LANE_OFFSET, ROAD_LANE_OFFSET];
+    let mut best: Option<(f32, Vec2, f32)> = None;
+
+    for road_index in -3_i32..=3 {
+        let road = road_index as f32 * ROAD_SPACING;
+        for lane in lane_offsets {
+            for offset in approach_offsets {
+                let candidates = [
+                    (Vec2::new(player.x + offset, road + lane), true),
+                    (Vec2::new(road + lane, player.y + offset), false),
+                ];
+                for (position, along_x) in candidates {
+                    let distance = position.distance(player);
+                    if !(RESPONSE_MIN_SPAWN_DISTANCE..=RESPONSE_MAX_SPAWN_DISTANCE)
+                        .contains(&distance)
+                    {
+                        continue;
+                    }
+                    let to_player = player - position;
+                    let yaw = to_player.y.atan2(to_player.x);
+                    let body = reserve_vehicle_body(position, yaw);
+                    let on_road = (along_x && (position.y - road).abs() <= ROAD_HALF_WIDTH)
+                        || (!along_x && (position.x - road).abs() <= ROAD_HALF_WIDTH);
+                    if !on_road
+                        || reserve_vehicle_city_collision(position, yaw)
+                        || occupied.iter().any(|other| bodies_overlap(&body, other))
+                    {
+                        continue;
+                    }
+                    if best.is_none_or(|(best_distance, _, _)| distance < best_distance) {
+                        best = Some((distance, position, yaw));
+                    }
+                }
+            }
+        }
+    }
+    best.map(|(_, position, yaw)| (position, yaw))
 }
 
 pub(super) fn spawn_reserve_cruisers(
@@ -93,30 +185,92 @@ pub(super) fn spawn_reserve_cruisers(
 pub(super) fn update_reserve_cruiser_visibility(
     game: Res<crate::Game>,
     wanted: Res<WantedState>,
+    probe: Option<Res<PlayerProbe>>,
+    time: Option<Res<Time>>,
     mut traffic_bodies: ResMut<TrafficBodies>,
-    mut cruisers: Query<(&ReserveCruiser, &Transform, &mut Visibility)>,
+    mut cruisers: Query<(&ReserveCruiser, &mut Transform, &mut Visibility)>,
 ) {
     let visible_count = if game.started {
         reserve_vehicle_count(wanted.level)
     } else {
         0
     };
+    let response_active = game.started && wanted.level >= RESPONSE_LEVEL;
+    let player_position = probe
+        .as_ref()
+        .map(|probe| Vec2::new(probe.position.x, probe.position.z));
+    let dt = time.map_or(0.0, |time| time.delta_secs().clamp(0.0, 0.05));
+
+    let current_cruiser_bodies: Vec<_> = cruisers
+        .iter()
+        .map(|(_, transform, _)| {
+            let yaw = (transform.rotation * Vec3::X).z.atan2((transform.rotation * Vec3::X).x);
+            reserve_vehicle_body(Vec2::new(transform.translation.x, transform.translation.z), yaw)
+        })
+        .collect();
+    let mut occupied = traffic_bodies.oriented.clone();
+    occupied.retain(|body| !current_cruiser_bodies.contains(body));
     let mut active_bodies = Vec::with_capacity(visible_count);
-    for (cruiser, transform, mut visibility) in &mut cruisers {
+
+    for (cruiser, mut transform, mut visibility) in &mut cruisers {
         let active = cruiser.index < visible_count;
         *visibility = if active {
             Visibility::Visible
         } else {
             Visibility::Hidden
         };
-        if active {
-            let forward = transform.rotation * Vec3::Z;
-            let forward = Vec2::new(forward.x, forward.z).normalize_or_zero();
-            active_bodies.push(Body::vehicle(
-                Vec2::new(transform.translation.x, transform.translation.z),
-                forward.y.atan2(forward.x),
-            ));
+        if !active {
+            continue;
         }
+
+        let mut position = Vec2::new(transform.translation.x, transform.translation.z);
+        let mut yaw = (transform.rotation * Vec3::X).z.atan2((transform.rotation * Vec3::X).x);
+        if response_active {
+            if let Some(player) = player_position {
+                let distance = position.distance(player);
+                if distance > RESPONSE_TRIGGER_DISTANCE {
+                    if let Some((spawn, spawn_yaw)) = reserve_response_spawn(player, &occupied) {
+                        position = spawn;
+                        yaw = spawn_yaw;
+                        transform.translation.x = spawn.x;
+                        transform.translation.z = spawn.y;
+                    }
+                }
+                let to_player = player - position;
+                let distance = to_player.length();
+                if dt > 0.0 && distance > RESPONSE_STOP_DISTANCE {
+                    let direction = to_player / distance;
+                    let movement = direction * (RESPONSE_SPEED * dt).min(distance - RESPONSE_STOP_DISTANCE);
+                    yaw = direction.y.atan2(direction.x);
+                    let next = crate::physics::move_with_slide(position, movement, |point| {
+                        reserve_vehicle_city_collision(point, yaw)
+                            || occupied.iter().any(|other| {
+                                bodies_overlap(&reserve_vehicle_body(point, yaw), other)
+                            })
+                            || probe.as_ref().is_some_and(|probe| {
+                                let player_yaw = Vec2::new(probe.forward.x, probe.forward.z)
+                                    .normalize_or_zero()
+                                    .y
+                                    .atan2(Vec2::new(probe.forward.x, probe.forward.z).normalize_or_zero().x);
+                                let player_body = if probe.in_vehicle {
+                                    Body::vehicle(player, player_yaw)
+                                } else {
+                                    Body::person(player)
+                                };
+                                bodies_overlap(&reserve_vehicle_body(point, yaw), &player_body)
+                            })
+                    });
+                    position = next;
+                    transform.translation.x = next.x;
+                    transform.translation.z = next.y;
+                    transform.rotation = Quat::from_rotation_y(yaw);
+                }
+            }
+        }
+
+        let body = reserve_vehicle_body(position, yaw);
+        occupied.push(body);
+        active_bodies.push(body);
     }
     traffic_bodies.oriented.extend(active_bodies);
 }
@@ -160,5 +314,95 @@ mod tests {
                 reserve_vehicle_count(wanted_level)
             );
         }
+    }
+
+    #[test]
+    fn high_wanted_response_cruisers_spawn_on_clear_roads_and_approach_the_player() {
+        let mut world = World::new();
+        let mut game = crate::Game::default();
+        game.started = true;
+        world.insert_resource(game);
+        let mut wanted = WantedState::default();
+        wanted.level = 4;
+        world.insert_resource(wanted);
+        let mut time = Time::<()>::default();
+        time.advance_by(std::time::Duration::from_millis(50));
+        world.insert_resource(time);
+        world.insert_resource(PlayerProbe {
+            position: Vec3::new(100.0, 0.9, 100.0),
+            vehicle_position: Vec3::new(120.0, 0.65, 120.0),
+            forward: Vec3::NEG_Z,
+            in_vehicle: false,
+            punch: false,
+            health: 100.0,
+        });
+        world.insert_resource(TrafficBodies::default());
+        for (index, position) in [Vec3::new(-96.0, 0.48, 8.8), Vec3::new(96.0, 0.48, -8.8)]
+            .into_iter()
+            .enumerate()
+        {
+            world.spawn((
+                ReserveCruiser { index },
+                Transform::from_translation(position),
+                Visibility::Hidden,
+            ));
+        }
+
+        world
+            .run_system_once(update_reserve_cruiser_visibility)
+            .expect("high wanted cruisers find nearby clear roads and pursue");
+
+        let mut query = world.query_filtered::<(&Transform, &Visibility), With<ReserveCruiser>>();
+        let active: Vec<_> = query
+            .iter(&world)
+            .filter(|(_, visibility)| matches!(**visibility, Visibility::Visible))
+            .map(|(transform, _)| {
+                let position = Vec2::new(transform.translation.x, transform.translation.z);
+                let forward = transform.rotation * Vec3::X;
+                let yaw = forward.z.atan2(forward.x);
+                (position, reserve_vehicle_body(position, yaw))
+            })
+            .collect();
+        let player = Vec2::new(100.0, 100.0);
+        assert_eq!(active.len(), 2);
+        for (position, body) in &active {
+            assert!(position.distance(player) < RESPONSE_MAX_SPAWN_DISTANCE);
+            assert!(position.distance(player) > RESPONSE_STOP_DISTANCE);
+            assert!(!reserve_vehicle_city_collision(*position, body.yaw));
+        }
+        assert!(!bodies_overlap(&active[0].1, &active[1].1));
+    }
+
+    #[test]
+    fn level_three_keeps_its_reserve_cruiser_at_the_city_post() {
+        let mut world = World::new();
+        let mut game = crate::Game::default();
+        game.started = true;
+        world.insert_resource(game);
+        let mut wanted = WantedState::default();
+        wanted.level = 3;
+        world.insert_resource(wanted);
+        world.insert_resource(TrafficBodies::default());
+        let post = Vec3::new(-96.0, 0.48, 8.8);
+        let cruiser = world
+            .spawn((
+                ReserveCruiser { index: 0 },
+                Transform::from_translation(post),
+                Visibility::Hidden,
+            ))
+            .id();
+        world.insert_resource(PlayerProbe {
+            position: Vec3::new(100.0, 0.9, 100.0),
+            vehicle_position: Vec3::ZERO,
+            forward: Vec3::NEG_Z,
+            in_vehicle: false,
+            punch: false,
+            health: 100.0,
+        });
+
+        world
+            .run_system_once(update_reserve_cruiser_visibility)
+            .expect("the high-wanted response threshold does not affect level three");
+        assert_eq!(world.get::<Transform>(cruiser).unwrap().translation, post);
     }
 }
