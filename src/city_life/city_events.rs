@@ -386,4 +386,58 @@ mod tests {
             Some(EventSignal::Failed(EventKind::EscapePolice))
         );
     }
+
+    #[test]
+    fn paused_game_freezes_active_event_timer_and_progress_until_resumed() {
+        use bevy::ecs::system::RunSystemOnce;
+        use std::time::Duration;
+
+        let mut world = World::new();
+        let mut time = Time::<()>::default();
+        time.advance_by(Duration::from_millis(16));
+        world.insert_resource(time);
+        world.insert_resource(WantedState::default());
+        world.insert_resource(TrafficBodies::default());
+        world.insert_resource(PlayerProbe::default());
+
+        let mut game = crate::Game::default();
+        game.started = true;
+        game.paused = true;
+        game.driving = true;
+        game.speed = 8.0;
+        world.insert_resource(game);
+
+        let mut events = CityEvents::default();
+        assert_eq!(
+            advance_event(&mut events, input(), 0.016),
+            Some(EventSignal::Started(EventKind::TrafficDrive))
+        );
+        world.insert_resource(events);
+
+        world
+            .run_system_once(city_event_system)
+            .expect("an active event remains frozen while the game is paused");
+        let paused_event = world
+            .resource::<CityEvents>()
+            .active
+            .as_ref()
+            .expect("the active event remains present during pause");
+        assert!((paused_event.remaining - EVENT_LIMIT_SECONDS).abs() < 1.0e-5);
+        assert_eq!(paused_event.progress, 0.0);
+
+        world.resource_mut::<crate::Game>().paused = false;
+        world
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_millis(16));
+        world
+            .run_system_once(city_event_system)
+            .expect("event time resumes after unpausing");
+        let resumed_event = world
+            .resource::<CityEvents>()
+            .active
+            .as_ref()
+            .expect("the event remains active after one resumed frame");
+        assert!((resumed_event.remaining - (EVENT_LIMIT_SECONDS - 0.016)).abs() < 1.0e-4);
+        assert!((resumed_event.progress - 0.016).abs() < 1.0e-4);
+    }
 }
