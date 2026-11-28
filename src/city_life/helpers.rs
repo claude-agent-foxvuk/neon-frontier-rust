@@ -1,5 +1,7 @@
 use super::*;
 
+const NORTH_SHORE_FAR_EDGE: f32 = 4_256.0;
+
 pub(super) fn resolve_knock(displacement: &mut Vec3, velocity: &mut Vec3, knocked: &mut f32, dt: f32) {
     if !dt.is_finite() || dt <= 0.0 {
         return;
@@ -44,7 +46,8 @@ pub(super) fn city_collision(position: Vec2, radius: f32) -> bool {
         || !radius.is_finite()
         || radius < 0.0
         || position.x.abs() + radius > CITY_LIMIT
-        || position.y.abs() + radius > CITY_LIMIT
+        || position.y - radius < -CITY_LIMIT
+        || position.y + radius > NORTH_SHORE_FAR_EDGE
     {
         return true;
     }
@@ -70,7 +73,10 @@ pub(super) fn vehicle_city_collision(position: Vec2, yaw: f32) -> bool {
         + crate::physics::VEHICLE_HALF_WIDTH * sin_yaw.abs();
     let extent_z = crate::physics::VEHICLE_HALF_LENGTH * sin_yaw.abs()
         + crate::physics::VEHICLE_HALF_WIDTH * cos_yaw.abs();
-    if position.x.abs() + extent_x > CITY_LIMIT || position.y.abs() + extent_z > CITY_LIMIT {
+    if position.x.abs() + extent_x > CITY_LIMIT
+        || position.y - extent_z < -CITY_LIMIT
+        || position.y + extent_z > NORTH_SHORE_FAR_EDGE
+    {
         return true;
     }
 
@@ -417,6 +423,18 @@ mod oriented_traffic_tests {
         assert!(city_collision(Vec2::new(f32::NAN, 0.0), 0.4));
         assert!(city_collision(Vec2::ZERO, f32::NAN));
         assert!(city_collision(Vec2::ZERO, -0.4));
+    }
+
+    #[test]
+    fn police_can_cross_the_north_beach_and_water_but_remain_bounded_at_the_ocean() {
+        assert!(!city_collision(Vec2::new(0.0, 192.0), 0.45));
+        assert!(!vehicle_city_collision(Vec2::new(0.0, 192.0), 0.0));
+        assert!(city_collision(Vec2::new(0.0, NORTH_SHORE_FAR_EDGE), 0.45));
+        assert!(vehicle_city_collision(Vec2::new(0.0, NORTH_SHORE_FAR_EDGE), 0.0));
+        assert!(city_collision(Vec2::new(0.0, -CITY_LIMIT), 0.45));
+        assert!(vehicle_city_collision(Vec2::new(0.0, -CITY_LIMIT), 0.0));
+        assert!(city_collision(Vec2::new(CITY_LIMIT, 192.0), 0.45));
+        assert!(vehicle_city_collision(Vec2::new(CITY_LIMIT, 192.0), 0.0));
     }
 
     #[test]
