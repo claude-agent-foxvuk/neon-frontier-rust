@@ -37,6 +37,12 @@ pub(super) fn choose_real_width_traffic_offset(
         if offset * direction <= 0.1 {
             continue;
         }
+        // The simulation waits for CAR_PASSING_OFFSET - 0.1 before moving forward.
+        // If road-edge clamping yields a smaller shift, it can wait forever, so try
+        // the opposite side instead of accepting a lane that cannot clear the obstacle.
+        if offset.abs() < CAR_PASSING_OFFSET - 0.1 {
+            continue;
+        }
         let target = baseline + side * offset;
 
         // Keep a full braking-distance corridor clear after merging, not only the car's nose.
@@ -159,6 +165,18 @@ mod tests {
         let target = current + Vec2::Y * offset;
 
         assert!(offset.abs() < CAR_PASSING_OFFSET);
+        assert!(target.y.abs() + crate::physics::VEHICLE_HALF_WIDTH <= 5.5 + 1.0e-5);
+    }
+
+    #[test]
+    fn passing_rejects_a_clamped_offset_that_cannot_reach_clearance() {
+        let current = Vec2::new(0.0, 0.8);
+        let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |_| {
+            false
+        })
+        .expect("the opposite side permits the full clearance offset");
+        assert!(offset.abs() >= CAR_PASSING_OFFSET - 0.1);
+        let target = current + Vec2::Y * offset;
         assert!(target.y.abs() + crate::physics::VEHICLE_HALF_WIDTH <= 5.5 + 1.0e-5);
     }
 
