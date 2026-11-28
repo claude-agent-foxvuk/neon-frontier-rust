@@ -22,14 +22,24 @@ pub(super) fn choose_real_width_traffic_offset(
     } else {
         1.0
     };
+    let centerline_limit = road_half_width - crate::physics::VEHICLE_HALF_WIDTH;
+    if !centerline_limit.is_finite() || centerline_limit <= 0.0 {
+        return None;
+    }
+    let lane_min = road_center - centerline_limit;
+    let lane_max = road_center + centerline_limit;
+    let baseline_coordinate = baseline.dot(side);
+
     for direction in [preferred_direction, -preferred_direction] {
-        let offset = direction * CAR_PASSING_OFFSET;
-        let target = baseline + side * offset;
-        if (target.dot(side) - road_center).abs() + crate::physics::VEHICLE_HALF_WIDTH
-            > road_half_width
-        {
+        let requested_coordinate = baseline_coordinate + direction * CAR_PASSING_OFFSET;
+        let target_coordinate = requested_coordinate.clamp(lane_min, lane_max);
+        let offset = target_coordinate - baseline_coordinate;
+        if offset * direction <= 0.1 {
             continue;
         }
+        let target = baseline + side * offset;
+
+        // Keep a full braking-distance corridor clear after merging, not only the car's nose.
         let candidate = crate::physics::move_with_slide(current, target - current, |point| {
             vehicle_city_collision(point, vehicle_yaw) || blocked(point)
         });
@@ -37,7 +47,6 @@ pub(super) fn choose_real_width_traffic_offset(
             continue;
         }
 
-        // Keep a full braking-distance corridor clear after merging, not only the car's nose.
         let forward_target = target + forward * CAR_BRAKE_DISTANCE;
         let forward_candidate = crate::physics::move_with_slide(
             candidate,
@@ -135,25 +144,29 @@ mod tests {
         let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |_| {
             false
         });
-        assert_eq!(offset, Some(-CAR_PASSING_OFFSET));
+        assert!(offset.is_some());
         let target = current + Vec2::Y * offset.unwrap();
-        assert!(target.y.abs() + crate::physics::VEHICLE_HALF_WIDTH <= 5.5);
+        assert!(target.y.abs() + crate::physics::VEHICLE_HALF_WIDTH <= 5.5 + 1.0e-5);
+    }
+
+    #[test]
+    fn passing_uses_remaining_road_width_when_the_preferred_offset_is_too_large() {
+        let current = Vec2::ZERO;
+        let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |_| {
+            false
+        });
+        let offset = offset.expect("a vehicle-width-safe passing lane remains");
+        let target = current + Vec2::Y * offset;
+
+        assert!(offset.abs() < CAR_PASSING_OFFSET);
+        assert!(target.y.abs() + crate::physics::VEHICLE_HALF_WIDTH <= 5.5 + 1.0e-5);
     }
 
     #[test]
     fn passing_does_not_cross_an_obstacle_on_the_way_to_the_other_lane() {
         let current = Vec2::new(0.0, 0.8);
         let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |p| {
-            p.y < -1.0
-        });
-        assert_eq!(offset, None);
-    }
-
-    #[test]
-    fn passing_rejects_the_lane_if_vehicle_overhangs_road() {
-        let current = Vec2::ZERO;
-        let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |_| {
-            false
+            p.y.abs() > 1.0
         });
         assert_eq!(offset, None);
     }
@@ -162,7 +175,7 @@ mod tests {
     fn passing_rejects_a_lane_blocked_just_after_the_merge() {
         let current = Vec2::new(0.0, 0.8);
         let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |p| {
-            p.x > 1.0 && p.y < -1.0
+            p.x > 1.0 && p.y.abs() > 1.0
         });
         assert_eq!(offset, None);
     }
@@ -171,7 +184,7 @@ mod tests {
     fn passing_rejects_an_obstacle_further_down_the_braking_corridor() {
         let current = Vec2::new(0.0, 0.8);
         let offset = choose_real_width_traffic_offset(current, current, Vec2::Y, 0.0, 5.5, |p| {
-            p.x > 4.0 && p.y < -1.0
+            p.x > 4.0 && p.y.abs() > 1.0
         });
         assert_eq!(offset, None);
     }
