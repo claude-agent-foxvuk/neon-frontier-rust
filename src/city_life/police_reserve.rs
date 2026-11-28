@@ -105,6 +105,60 @@ fn reserve_response_spawn(player: Vec2, occupied: &[Body]) -> Option<(Vec2, f32)
     best.map(|(_, position, yaw)| (position, yaw))
 }
 
+fn reserve_vehicle_center_stays_on_road(position: Vec2) -> bool {
+    if !position.is_finite() {
+        return false;
+    }
+    let center_limit = ROAD_HALF_WIDTH - crate::physics::VEHICLE_HALF_WIDTH;
+    let nearest_x_road = (position.x / ROAD_SPACING).round() * ROAD_SPACING;
+    let nearest_y_road = (position.y / ROAD_SPACING).round() * ROAD_SPACING;
+    (position.x - nearest_x_road).abs() <= center_limit
+        || (position.y - nearest_y_road).abs() <= center_limit
+}
+
+fn reserve_response_step(
+    position: Vec2,
+    player: Vec2,
+    dt: f32,
+    occupied: &[Body],
+    player_body: Option<&Body>,
+) -> (Vec2, f32) {
+    let to_player = player - position;
+    let distance = to_player.length();
+    if !distance.is_finite() || distance <= RESPONSE_STOP_DISTANCE || dt <= 0.0 {
+        return (position, 0.0);
+    }
+
+    let desired = to_player / distance;
+    let step = (RESPONSE_SPEED * dt).min(distance - RESPONSE_STOP_DISTANCE);
+    let directions = [desired, Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y];
+    let mut best = position;
+    let mut best_distance = distance;
+    let mut best_yaw = desired.y.atan2(desired.x);
+
+    for direction in directions {
+        let yaw = direction.y.atan2(direction.x);
+        let candidate = crate::physics::move_with_slide(position, direction * step, |point| {
+            !reserve_vehicle_center_stays_on_road(point)
+                || reserve_vehicle_city_collision(point, yaw)
+                || occupied
+                    .iter()
+                    .any(|other| bodies_overlap(&reserve_vehicle_body(point, yaw), other))
+                || player_body.is_some_and(|body| {
+                    bodies_overlap(&reserve_vehicle_body(point, yaw), body)
+                })
+        });
+        let candidate_distance = candidate.distance(player);
+        if candidate_distance + 1.0e-4 < best_distance {
+            best = candidate;
+            best_distance = candidate_distance;
+            best_yaw = yaw;
+        }
+    }
+
+    (best, best_yaw)
+}
+
 pub(super) fn spawn_reserve_cruisers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -211,6 +265,16 @@ pub(super) fn update_reserve_cruiser_visibility(
     let mut occupied = traffic_bodies.oriented.clone();
     occupied.retain(|body| !current_cruiser_bodies.contains(body));
     let mut active_bodies = Vec::with_capacity(visible_count);
+    let player_body = probe.as_ref().and_then(|probe| {
+        let player = Vec2::new(probe.position.x, probe.position.z);
+        let forward = Vec2::new(probe.forward.x, probe.forward.z).normalize_or_zero();
+        let yaw = forward.y.atan2(forward.x);
+        Some(if probe.in_vehicle {
+            Body::vehicle(player, yaw)
+        } else {
+            Body::person(player)
+        })
+    });
 
     for (cruiser, mut transform, mut visibility) in &mut cruisers {
         let active = cruiser.index < visible_count;
@@ -236,39 +300,18 @@ pub(super) fn update_reserve_cruiser_visibility(
                         transform.translation.z = spawn.y;
                     }
                 }
-                let to_player = player - position;
-                let distance = to_player.length();
-                if dt > 0.0 && distance > RESPONSE_STOP_DISTANCE {
-                    let direction = to_player / distance;
-                    let movement = direction * (RESPONSE_SPEED * dt).min(distance - RESPONSE_STOP_DISTANCE);
-                    yaw = direction.y.atan2(direction.x);
-                    let next = crate::physics::move_with_slide(position, movement, |point| {
-                        reserve_vehicle_city_collision(point, yaw)
-                            || occupied.iter().any(|other| {
-                                bodies_overlap(&reserve_vehicle_body(point, yaw), other)
-                            })
-                            || probe.as_ref().is_some_and(|probe| {
-                                let player_yaw = Vec2::new(probe.forward.x, probe.forward.z)
-                                    .normalize_or_zero()
-                                    .y
-                                    .atan2(
-                                        Vec2::new(probe.forward.x, probe.forward.z)
-                                            .normalize_or_zero()
-                                            .x,
-                                    );
-                                let player_body = if probe.in_vehicle {
-                                    Body::vehicle(player, player_yaw)
-                                } else {
-                                    Body::person(player)
-                                };
-                                bodies_overlap(&reserve_vehicle_body(point, yaw), &player_body)
-                            })
-                    });
-                    position = next;
-                    transform.translation.x = next.x;
-                    transform.translation.z = next.y;
-                    transform.rotation = Quat::from_rotation_y(yaw);
-                }
+                let (next, next_yaw) = reserve_response_step(
+                    position,
+                    player,
+                    dt,
+                    &occupied,
+                    player_body.as_ref(),
+                );
+                position = next;
+                yaw = next_yaw;
+                transform.translation.x = next.x;
+                transform.translation.z = next.y;
+                transform.rotation = Quat::from_rotation_y(yaw);
             }
         }
 
