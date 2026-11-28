@@ -35,6 +35,7 @@ fn reserve_cruiser_keeps_closing_on_player_after_high_wanted_spawn() {
     world.insert_resource(game);
     let mut wanted = WantedState::default();
     wanted.level = 4;
+    wanted.decay_timer = 120.0;
     world.insert_resource(wanted);
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(50));
@@ -49,6 +50,8 @@ fn reserve_cruiser_keeps_closing_on_player_after_high_wanted_spawn() {
         health: 100.0,
     });
     world.insert_resource(TrafficBodies::default());
+    world.init_resource::<WorldState>();
+    world.init_resource::<WorldRestore>();
     let cruiser = world
         .spawn((
             super::super::police_reserve::ReserveCruiser { index: 0 },
@@ -57,6 +60,9 @@ fn reserve_cruiser_keeps_closing_on_player_after_high_wanted_spawn() {
         ))
         .id();
 
+    world
+        .run_system_once(simulate_city_life)
+        .expect("the live city simulation publishes its current collision bodies");
     world
         .run_system_once(super::super::police_reserve::update_reserve_cruiser_visibility)
         .expect("a high-wanted cruiser spawns on a clear road near the player");
@@ -73,6 +79,9 @@ fn reserve_cruiser_keeps_closing_on_player_after_high_wanted_spawn() {
         world
             .resource_mut::<Time<()>>()
             .advance_by(Duration::from_millis(50));
+        world
+            .run_system_once(simulate_city_life)
+            .expect("the live simulation refreshes non-reserve collision bodies each frame");
         world
             .run_system_once(super::super::police_reserve::update_reserve_cruiser_visibility)
             .expect("the reserve cruiser continues pursuing across frames");
