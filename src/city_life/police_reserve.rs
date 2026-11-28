@@ -8,6 +8,7 @@ const ROAD_SPACING: f32 = 48.0;
 const ROAD_HALF_WIDTH: f32 = 5.5;
 const ROAD_LANE_OFFSET: f32 = 2.1;
 const CITY_LIMIT: f32 = 160.0;
+const NORTH_LIMIT: f32 = 4_256.0;
 const BUILDING_HALF: f32 = 14.0;
 const RESPONSE_LEVEL: u8 = 4;
 const RESPONSE_TRIGGER_DISTANCE: f32 = 80.0;
@@ -38,7 +39,10 @@ fn reserve_vehicle_city_collision(position: Vec2, yaw: f32) -> bool {
         + crate::physics::VEHICLE_HALF_WIDTH * sin_yaw.abs();
     let extent_y = crate::physics::VEHICLE_HALF_LENGTH * sin_yaw.abs()
         + crate::physics::VEHICLE_HALF_WIDTH * cos_yaw.abs();
-    if position.x.abs() + extent_x > CITY_LIMIT || position.y.abs() + extent_y > CITY_LIMIT {
+    if position.x.abs() + extent_x > CITY_LIMIT
+        || position.y - extent_y < -CITY_LIMIT
+        || position.y + extent_y > NORTH_LIMIT
+    {
         return true;
     }
 
@@ -326,6 +330,39 @@ pub(super) fn update_reserve_cruiser_visibility(
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn reserve_cruisers_can_use_the_north_coast_without_opening_south_or_side_edges() {
+        let north_beach = Vec2::new(0.0, CITY_LIMIT + 48.0);
+        let north_yaw = std::f32::consts::FRAC_PI_2;
+        assert!(!reserve_vehicle_city_collision(north_beach, north_yaw));
+        assert!(reserve_vehicle_city_collision(
+            Vec2::new(0.0, -CITY_LIMIT - 8.0),
+            north_yaw
+        ));
+        assert!(reserve_vehicle_city_collision(
+            Vec2::new(CITY_LIMIT + 8.0, 0.0),
+            north_yaw
+        ));
+        assert!(reserve_vehicle_city_collision(
+            Vec2::new(0.0, NORTH_LIMIT + 8.0),
+            north_yaw
+        ));
+    }
+
+    #[test]
+    fn high_wanted_reserve_response_spawns_and_moves_north_of_the_city() {
+        let player = Vec2::new(0.0, CITY_LIMIT + 96.0);
+        let (spawn, yaw) = reserve_response_spawn(player, &[])
+            .expect("a clear approach road extends from the city toward the north coast");
+        assert!(spawn.y > CITY_LIMIT);
+        assert!(!reserve_vehicle_city_collision(spawn, yaw));
+
+        let (next, next_yaw) = reserve_response_step(spawn, player, 0.05, &[], None);
+        assert!(next.distance(player) < spawn.distance(player));
+        assert!(next.y > CITY_LIMIT);
+        assert!(!reserve_vehicle_city_collision(next, next_yaw));
+    }
 
     #[test]
     fn extra_cruisers_and_their_collision_bodies_scale_from_three_to_six_stars() {
