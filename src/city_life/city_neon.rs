@@ -9,6 +9,9 @@ const PARK_BENCH_OFFSET: f32 = 0.68;
 const PARK_TREE_COLLISION_RADIUS: f32 = 0.45;
 const PARK_BENCH_HALF_LENGTH: f32 = 0.72;
 const PARK_BENCH_HALF_WIDTH: f32 = 0.23;
+const NORTH_BEACH_START: f32 = 152.2;
+const NORTH_WATER_START: f32 = 160.0;
+const NORTH_WATER_DEPTH: f32 = 4_096.0;
 
 #[derive(Clone, Copy)]
 struct NeonDetail {
@@ -232,6 +235,56 @@ fn spawn_central_park(
     }
 }
 
+fn spawn_north_coast(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
+    let beach_width = NORTH_WATER_START - NORTH_BEACH_START;
+    let beach_mesh = meshes.add(Cuboid::new(340.0, 0.08, beach_width));
+    let wet_sand_mesh = meshes.add(Cuboid::new(340.0, 0.035, 1.8));
+    let water_mesh = meshes.add(Cuboid::new(340.0, 0.08, NORTH_WATER_DEPTH));
+    let beach_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.72, 0.58, 0.36),
+        perceptual_roughness: 0.96,
+        ..default()
+    });
+    let wet_sand_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.43, 0.39, 0.30),
+        perceptual_roughness: 0.9,
+        ..default()
+    });
+    let water_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.025, 0.24, 0.36),
+        metallic: 0.12,
+        perceptual_roughness: 0.28,
+        ..default()
+    });
+    commands.spawn((
+        Mesh3d(beach_mesh),
+        MeshMaterial3d(beach_material),
+        Transform::from_xyz(
+            0.0,
+            0.025,
+            (NORTH_BEACH_START + NORTH_WATER_START) * 0.5,
+        ),
+    ));
+    commands.spawn((
+        Mesh3d(wet_sand_mesh),
+        MeshMaterial3d(wet_sand_material),
+        Transform::from_xyz(0.0, 0.052, NORTH_WATER_START - 0.9),
+    ));
+    commands.spawn((
+        Mesh3d(water_mesh),
+        MeshMaterial3d(water_material),
+        Transform::from_xyz(
+            0.0,
+            0.04,
+            NORTH_WATER_START + NORTH_WATER_DEPTH * 0.5,
+        ),
+    ));
+}
+
 pub(super) fn spawn_city_neon(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -265,6 +318,7 @@ pub(super) fn spawn_city_neon(
         ));
     }
     spawn_central_park(&mut commands, &mut meshes, &mut materials);
+    spawn_north_coast(&mut commands, &mut meshes, &mut materials);
 }
 
 #[cfg(test)]
@@ -339,5 +393,26 @@ mod tests {
                     .any(|body| bodies_overlap(&walker(center + Vec2::new(0.0, offset)), body)));
             }
         }
+    }
+
+    #[test]
+    fn north_shore_has_walkable_sand_and_water_before_the_existing_world_limit() {
+        let building_edge = 120.0 + BUILDING_HALF;
+        let sidewalk_outer_edge = 151.2;
+        assert!(building_edge < NORTH_BEACH_START);
+        assert!(sidewalk_outer_edge < NORTH_BEACH_START);
+        assert!(NORTH_BEACH_START < NORTH_WATER_START);
+        assert!(NORTH_WATER_START < crate::WORLD_EDGE);
+        assert!(NORTH_WATER_START + NORTH_WATER_DEPTH > crate::WORLD_EDGE);
+
+        let beach_step = (NORTH_BEACH_START + NORTH_WATER_START) * 0.5;
+        let water_step = (NORTH_WATER_START + crate::WORLD_EDGE) * 0.5;
+        assert!(!crate::collides(Vec2::new(0.0, beach_step), 0.45, &[]));
+        assert!(!crate::collides(Vec2::new(0.0, water_step), 0.45, &[]));
+        assert!(crate::collides(
+            Vec2::new(0.0, crate::WORLD_EDGE),
+            0.45,
+            &[],
+        ));
     }
 }
