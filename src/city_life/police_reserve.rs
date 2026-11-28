@@ -421,6 +421,28 @@ mod tests {
     }
 
     #[test]
+    fn high_wanted_response_finds_clear_roads_near_all_four_world_edges() {
+        let edge_players = [
+            Vec2::new(CITY_LIMIT - 4.0, 0.0),
+            Vec2::new(-CITY_LIMIT + 4.0, 0.0),
+            Vec2::new(0.0, CITY_LIMIT - 4.0),
+            Vec2::new(0.0, -CITY_LIMIT + 4.0),
+        ];
+
+        for player in edge_players {
+            let (spawn, yaw) = reserve_response_spawn(player, &[])
+                .expect("a clear road remains close to a high-wanted player at the map edge");
+            let body = reserve_vehicle_body(spawn, yaw);
+
+            assert!(reserve_vehicle_center_stays_on_road(spawn));
+            assert!(spawn.distance(player) >= RESPONSE_MIN_SPAWN_DISTANCE);
+            assert!(spawn.distance(player) <= RESPONSE_MAX_SPAWN_DISTANCE);
+            assert!(!reserve_vehicle_city_collision(spawn, yaw));
+            assert!(spawn.is_finite() && yaw.is_finite());
+        }
+    }
+
+    #[test]
     fn level_three_keeps_its_reserve_cruiser_at_the_city_post() {
         let mut world = World::new();
         let mut game = crate::Game::default();
