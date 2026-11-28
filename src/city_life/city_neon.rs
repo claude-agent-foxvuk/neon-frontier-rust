@@ -5,6 +5,10 @@ const BUILDING_HALF: f32 = 14.0;
 const PARK_TILE_SIZE: f32 = 4.2;
 const PARK_CORNER_OFFSET: f32 = 7.75;
 const PARK_PATH_WIDTH: f32 = 0.34;
+const PARK_BENCH_OFFSET: f32 = 0.68;
+const PARK_TREE_COLLISION_RADIUS: f32 = 0.32;
+const PARK_BENCH_HALF_LENGTH: f32 = 0.72;
+const PARK_BENCH_HALF_WIDTH: f32 = 0.23;
 
 #[derive(Clone, Copy)]
 struct NeonDetail {
@@ -54,6 +58,35 @@ fn central_park_centers() -> [Vec2; 4] {
         Vec2::new(PARK_CORNER_OFFSET, -PARK_CORNER_OFFSET),
         Vec2::new(PARK_CORNER_OFFSET, PARK_CORNER_OFFSET),
     ]
+}
+
+pub(super) fn central_park_collision_bodies() -> [crate::physics::Body; 12] {
+    std::array::from_fn(|index| {
+        let centers = central_park_centers();
+        if index < centers.len() {
+            crate::physics::Body::new(
+                centers[index],
+                PARK_TREE_COLLISION_RADIUS,
+                PARK_TREE_COLLISION_RADIUS,
+                0.0,
+            )
+        } else {
+            let bench_index = index - centers.len();
+            let park = centers[bench_index / 2];
+            let side = if bench_index % 2 == 0 { -1.0 } else { 1.0 };
+            let yaw = if side < 0.0 {
+                std::f32::consts::FRAC_PI_2
+            } else {
+                -std::f32::consts::FRAC_PI_2
+            };
+            crate::physics::Body::new(
+                park + Vec2::new(side * PARK_BENCH_OFFSET, 0.0),
+                PARK_BENCH_HALF_LENGTH,
+                PARK_BENCH_HALF_WIDTH,
+                yaw,
+            )
+        }
+    })
 }
 
 fn spawn_central_park(
@@ -165,7 +198,7 @@ fn spawn_central_park(
             (-1.0, std::f32::consts::FRAC_PI_2),
             (1.0, -std::f32::consts::FRAC_PI_2),
         ] {
-            let bench_position = Vec3::new(center.x + side * 1.28, 0.34, center.y);
+            let bench_position = Vec3::new(center.x + side * PARK_BENCH_OFFSET, 0.34, center.y);
             let bench_rotation = Quat::from_rotation_y(yaw);
             commands.spawn((
                 Mesh3d(bench_seat_mesh.clone()),
@@ -237,6 +270,7 @@ pub(super) fn spawn_city_neon(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::physics::{bodies_overlap, Body};
 
     #[test]
     fn every_building_has_four_roof_strips_and_two_facade_signs() {
@@ -276,6 +310,33 @@ mod tests {
             assert!(1.52 + PARK_PATH_WIDTH * 0.5 < half_tile);
             assert!((PARK_TILE_SIZE - 0.72) * 0.5 < half_tile);
             assert!(2.02 + 0.08 <= half_tile + 1.0e-5);
+        }
+    }
+
+    #[test]
+    fn park_trees_and_benches_block_walkers_while_cross_paths_stay_clear() {
+        let centers = central_park_centers();
+        let obstacles = central_park_collision_bodies();
+        assert_eq!(obstacles.len(), 12);
+
+        for (park_index, center) in centers.into_iter().enumerate() {
+            let walker = |position: Vec2| Body::new(position, 0.45, 0.45, 0.0);
+            assert!(bodies_overlap(&walker(center), &obstacles[park_index]));
+
+            for side in [-1.0, 1.0] {
+                let bench_index = centers.len() + park_index * 2 + usize::from(side > 0.0);
+                let bench_position = center + Vec2::new(side * PARK_BENCH_OFFSET, 0.0);
+                assert!(bodies_overlap(&walker(bench_position), &obstacles[bench_index]));
+            }
+
+            for offset in [-1.52, 1.52] {
+                assert!(!obstacles
+                    .iter()
+                    .any(|body| bodies_overlap(&walker(center + Vec2::new(offset, 0.0)), body)));
+                assert!(!obstacles
+                    .iter()
+                    .any(|body| bodies_overlap(&walker(center + Vec2::new(0.0, offset)), body)));
+            }
         }
     }
 }
