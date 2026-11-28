@@ -138,7 +138,7 @@ fn live_traffic_stops_before_walking_player_obb_without_wanted() {
 
     let snapshot = &world.resource::<WorldState>().snapshot;
     assert_eq!(snapshot.traffic.len(), 1);
-    assert!(snapshot.traffic[0].stop_timer > 0.0);
+    assert!(snapshot.traffic[0].lane_offset.abs() > 0.1);
     assert_eq!(snapshot.wanted_level, 0);
 
     let mut cars = world.query_filtered::<(&Transform, &TrafficCar), With<TrafficCar>>();
@@ -151,10 +151,7 @@ fn live_traffic_stops_before_walking_player_obb_without_wanted() {
 
 #[test]
 fn live_player_vehicle_obb_knocks_down_overlapping_pedestrian() {
-    let snapshot = simulate_vehicle_pedestrian_contact(
-        Vec3::new(1.5, 0.82, 0.0),
-        Vec3::X,
-    );
+    let snapshot = simulate_vehicle_pedestrian_contact(Vec3::new(1.5, 0.82, 0.0), Vec3::X);
 
     assert_eq!(snapshot.citizens.len(), 1);
     assert!(snapshot.citizens[0].dead);
