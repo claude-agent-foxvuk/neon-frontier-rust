@@ -18,7 +18,7 @@ const RESPONSE_SPEED: f32 = 16.0;
 
 #[derive(Component)]
 pub(super) struct ReserveCruiser {
-    index: usize,
+    pub(super) index: usize,
 }
 
 fn reserve_vehicle_count(wanted_level: u8) -> usize {
@@ -251,7 +251,11 @@ pub(super) fn update_reserve_cruiser_visibility(
                                 let player_yaw = Vec2::new(probe.forward.x, probe.forward.z)
                                     .normalize_or_zero()
                                     .y
-                                    .atan2(Vec2::new(probe.forward.x, probe.forward.z).normalize_or_zero().x);
+                                    .atan2(
+                                        Vec2::new(probe.forward.x, probe.forward.z)
+                                            .normalize_or_zero()
+                                            .x,
+                                    );
                                 let player_body = if probe.in_vehicle {
                                     Body::vehicle(player, player_yaw)
                                 } else {
