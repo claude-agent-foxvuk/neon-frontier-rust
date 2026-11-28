@@ -3,9 +3,10 @@
 Игровые функции — в `TODO.md`, реализованные возможности — в `FEATURES.md`, исходная структура — в `ENGINEERING.md`.
 
 ## Windows build check
-- #231 проверяет `main`, SHA `f956fa98bbaaf270fb81c751a87173b267c8170e` («Test city event cooldown across pause»). На последнем чтении setup и checkout прошли, установка toolchain выполнялась. Кэш Cargo, форматирование, ECS-тесты, release build, startup smoke и EXE upload ещё не завершились. Коммит добавляет ECS-регрессию: кулдаун события остаётся неизменным на паузе и продолжает уменьшаться после возобновления. Коммит прочитан обратно из GitHub.
-- #230 проверяет SHA `371011b09978b7109e613c6e32061728e29c357c` («Test city event timers across pause»). Setup, checkout, toolchain, кэш Cargo и форматирование прошли; ECS-тесты выполняются. Release build, startup smoke и upload ждут тестов.
-- #229 проверяет SHA `1f145ef95f9f70ca3c3f83d92f9290ef319086ef` («Reject undersized clamped traffic passing lanes»). Setup, checkout, toolchain, кэш Cargo и форматирование прошли; ECS-тесты выполняются. Release build, startup smoke и upload ждут тестов.
+- #232 проверяет `main`, SHA `0384fcfe8666d33e5f611f2b5312acb77c96c649` («Test high wanted cruiser pursuit over time»). На последнем чтении setup и checkout прошли, toolchain устанавливался; кэш, форматирование, ECS-тесты, release build, startup smoke и EXE upload ещё не завершились. Коммит добавляет ECS-регрессию, которая проверяет, что резервная машина полиции продолжает сокращать дистанцию до игрока при высоком розыске. Тест записан в `src/city_life/police_progression_tests.rs` и прочитан обратно; результат CI ожидается.
+- #231 проверяет SHA `f956fa98bbaaf270fb81c751a87173b267c8170e` («Test city event cooldown across pause»). Setup и checkout прошли, установка toolchain была в процессе; остальные шаги ещё не подтверждены. Проверка тестирует паузу и возобновление кулдауна городского события.
+- #230 проверяет SHA `371011b09978b7109e613c6e32061728e29c357c` («Test city event timers across pause»). Setup, checkout, toolchain, кэш Cargo и форматирование прошли; ECS-тесты выполняются.
+- #229 проверяет SHA `1f145ef95f9f70ca3c3f83d92f9290ef319086ef` («Reject undersized clamped traffic passing lanes»). Setup, checkout, toolchain, кэш Cargo и форматирование прошли; ECS-тесты выполняются.
 - #228 для `40e95abaa12ac76c4a94427fe5121fcadbcce07a` завершился ошибкой в `Test with ECS diagnostics`: 187 тестов прошли, 6 упали. Это `live_traffic_stops_before_walking_player_obb_without_wanted`, `live_traffic_brakes_for_ahead_player_vehicle_using_oriented_contacts`, `traffic_avoidance_stays_inside_the_road_width`, `live_traffic_passes_a_stationary_player_car_when_lane_is_clear`, `live_traffic_brakes_before_the_parked_vehicle_using_its_real_obb` и `live_traffic_brakes_before_the_player_vehicle_obb`. Release build, smoke и upload были пропущены.
 - #227 на `7acccd697b66d6e7764020d36e9c61c02edd9f48` завершился ошибкой на том же тестовом шаге: 185 тестов прошли, те же 6 тестов упали. Сценарий `live_head_on_traffic_cars_both_leave_their_approach_without_mutual_deadlock` прошёл, но run в целом неуспешен. Release build, smoke и upload были пропущены.
 - #226 для `87317d218c8e5f536aa633c6c1705fde9e66d107` прошёл кэш и форматирование, затем упал шаг тестов; release build, smoke и upload не подтвердились.
@@ -16,12 +17,12 @@
 - #218 на `37a727949a392f68d14c0fc043b6c6c9fad703d2`, #217 на `e6a73fa8c97fff1df7c1132b80bd8eb5a06b0d59` и #216 на `75801ad3f8bdcaae441e62b4175f22ac126af8bc` завершились ошибкой; #215 на `cc31095c087f543853febc7f68d10af7c3faf1ef` прошёл. Это старые версии.
 
 ## Открытые автоматические проверки
-- [ ] Подтвердить ECS-тесты, release build, startup smoke и EXE на актуальном игровом SHA `f956fa98…`; #231 выполняется.
-- [ ] Проверить регрессии активного таймера и прогресса события на паузе (#230), а также таймера кулдауна (#231).
+- [ ] Подтвердить ECS-тесты, release build, startup smoke и EXE на актуальном игровом SHA `0384fcfe…`; #232 выполняется.
+- [ ] Проверить регрессии активного таймера и прогресса события на паузе (#230), а также кулдауна события (#231).
+- [ ] Проверить, что резервные машины при высоком розыске появляются рядом с игроком и продолжают преследование по нескольким кадрам; новая ECS-регрессия в #232 пока не проверена CI.
 - [ ] Проверить столкновения машины с деревьями и скамьями центрального парка; отдельно проверить форму препятствий и проходимость дорожек.
 - [ ] Проверить A/D и совпадение направления передней части машины с движением в #225.
 - [ ] Проверить встречный объезд и устранить оставшиеся падения P0; head-on тест прошёл в #227, но шесть других тестов там упали.
-- [ ] Проверить появление полиции рядом с игроком и активное преследование при высоком розыске.
 - [ ] Добавить ECS-регрессии завершения и наград городских событий; проверить сохранение и загрузку во время события.
 - [ ] Добавить интеграционные тесты переходов меню, F5/F9 и отсутствия записи сейва или смены мира в меню.
 - [ ] Проверить полицейскую погоню, стрельбу, урон, укрытие зданиями и сирены на нескольких уровнях розыска.
