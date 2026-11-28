@@ -218,7 +218,7 @@ fn main_update_world_queries_initialize_without_conflicts() {
 fn live_traffic_starts_a_safe_pass_around_ahead_player_vehicle() {
     let mut world = World::new();
     let mut time = Time::<()>::default();
-    time.advance_by(Duration::from_millis(16));
+    time.advance_by(Duration::from_millis(50));
     world.insert_resource(time);
     world.insert_resource(PlayerProbe {
         position: Vec3::new(10.0, 0.65, 0.0),
